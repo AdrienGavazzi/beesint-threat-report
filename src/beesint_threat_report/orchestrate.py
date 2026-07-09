@@ -1,0 +1,603 @@
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import logging
+import time
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from uuid import uuid4
+
+import httpx
+import polars as pl
+
+from beesint_threat_report.cache.store import cache_key, get_or_fetch
+from beesint_threat_report.config import Settings, load_settings, resolve_base_path, resolve_storage_options
+from beesint_threat_report.extract import feodo, kev, nvd, urlhaus
+from beesint_threat_report.load.json_writer import build_report_payload, write_report_json
+from beesint_threat_report.load.parquet_writer import write_historical_parquet
+from beesint_threat_report.load.pdf_renderer import render_pdf
+from beesint_threat_report.publish.telemetry import log_run_summary, sentry_breadcrumb_run_step
+from beesint_threat_report.publish.webhook import publish_status
+from beesint_threat_report.transform import dedup, diffing, geoloc, mttk, ranking
+from beesint_threat_report.transform import kpis as kpis_module
+from beesint_threat_report.validate.frames import (
+    validate_cve_frame,
+    validate_feodo_frame,
+    validate_kev_frame,
+    validate_urlhaus_frame,
+)
+from beesint_threat_report.validate.schemas import (
+    FeodoIpRecord,
+    KevEntry,
+    NvdCveRecord,
+    UrlhausEntry,
+    validate_batch,
+)
+
+logger = logging.getLogger(__name__)
+
+_CVE_EMPTY_SCHEMA = {
+    "cve_id": pl.Utf8,
+    "published_date": pl.Datetime,
+    "cvss_v3_score": pl.Float64,
+    "cvss_v3_severity": pl.Utf8,
+    "vendor": pl.Utf8,
+    "cwe_ids": pl.List(pl.Utf8),
+}
+_KEV_EMPTY_SCHEMA = {
+    "cve_id": pl.Utf8,
+    "date_added": pl.Datetime,
+    "due_date": pl.Datetime,
+    "known_ransomware_campaign_use": pl.Utf8,
+}
+_FEODO_EMPTY_SCHEMA = {
+    "ip_address": pl.Utf8,
+    "status": pl.Utf8,
+    "malware": pl.Utf8,
+    "first_seen": pl.Datetime,
+    "last_online": pl.Datetime,
+    "country": pl.Utf8,
+}
+_URLHAUS_EMPTY_SCHEMA = {
+    "url": pl.Utf8,
+    "url_status": pl.Utf8,
+    "date_added": pl.Datetime,
+}
+
+
+def _records_to_frame(records: list, schema: dict) -> pl.DataFrame:
+    if not records:
+        return pl.DataFrame(schema=schema)
+    rows = [r.model_dump() for r in records]
+    return pl.DataFrame(rows).select(list(schema.keys()))
+
+
+async def _fetch_geo_wrapped(client: httpx.AsyncClient, ip_records: list[FeodoIpRecord], batch_url: str) -> list[dict]:
+    # cache.get_or_fetch attend list[dict] — le dict {ip: {...}} de geoloc est enveloppé
+    # dans une liste à un élément pour respecter ce contrat générique.
+    geo = await geoloc.enrich_ips_geoloc(client, ip_records, batch_url)
+    return [geo]
+
+
+def _read_json(base_path: str, storage_options: dict | None, relative_path: str):
+    path = f"{base_path}/{relative_path}"
+    if storage_options is None:
+        p = Path(path)
+        if not p.exists():
+            return None
+        return json.loads(p.read_text(encoding="utf-8"))
+    import fsspec
+
+    fs = fsspec.filesystem("s3", **storage_options)
+    try:
+        with fs.open(path, "r") as fh:
+            return json.load(fh)
+    except Exception:
+        # objet absent (cold start) — toute erreur S3 ici est traitée comme "absent",
+        # cohérent avec load_previous_snapshot (dégradation, jamais de crash sur lecture manquante)
+        return None
+
+
+def _write_json(base_path: str, storage_options: dict | None, relative_path: str, payload) -> None:
+    path = f"{base_path}/{relative_path}"
+    body = json.dumps(payload)
+    if storage_options is None:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(body, encoding="utf-8")
+        return
+    import fsspec
+
+    fs = fsspec.filesystem("s3", **storage_options)
+    with fs.open(path, "w") as fh:
+        fh.write(body)
+
+
+def _write_quarantine(
+    base_path: str, storage_options: dict | None, source: str, run_id: str, rejected: list[dict]
+) -> None:
+    for index, item in enumerate(rejected):
+        _write_json(base_path, storage_options, f"quarantine/{source}/{run_id}/{index}.json", item)
+        try:
+            import sentry_sdk
+
+            sentry_sdk.capture_message(f"quarantine: {source} item {index} invalide")
+        except Exception:
+            pass
+
+
+async def _run_nvd_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    run_id: str,
+    period_start,
+    period_end,
+    base_path: str,
+    storage_options: dict | None,
+) -> tuple[pl.DataFrame, str, int]:
+    try:
+        # granularité jour (pas microseconde) — period_end dérive de datetime.now() à
+        # chaque run, une clé au timestamp exact ne matcherait jamais deux runs successifs
+        # et rendrait le cache inopérant (cf. test d'acceptation 2 "cache chaud").
+        key = cache_key(
+            "nvd",
+            {
+                "period_end_date": period_end.date().isoformat(),
+                "window_days": settings.report_window_days,
+                "max_results": settings.max_results_nvd,
+            },
+        )
+        raw = await get_or_fetch(
+            key,
+            lambda: nvd.fetch_critical_cves(
+                client,
+                period_start,
+                period_end,
+                settings.nvd_api_key,
+                settings.max_results_nvd,
+                settings.nvd_base_url,
+            ),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+        valid, rejected = validate_batch(raw, NvdCveRecord, source="nvd", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "nvd", run_id, rejected)
+        deduped = dedup.dedup_cves(valid)
+        df = _records_to_frame(deduped, _CVE_EMPTY_SCHEMA)
+        if df.height:
+            df = validate_cve_frame(df)
+
+        high_key = cache_key(
+            "nvd_high_count",
+            {"period_end_date": period_end.date().isoformat(), "window_days": settings.report_window_days},
+        )
+
+        async def _fetch_high_count():
+            count = await nvd.count_high_severity_cves(
+                client, period_start, period_end, settings.nvd_api_key, settings.nvd_base_url
+            )
+            return [{"total": count}]
+
+        high_raw = await get_or_fetch(high_key, _fetch_high_count, settings.cache_dir, settings.force_refresh)
+        cve_high_count = high_raw[0]["total"] if high_raw else 0
+
+        return df, "ok", cve_high_count
+    except Exception:
+        logger.exception("nvd: échec de la source, run continue en dégradé")
+        return pl.DataFrame(schema=_CVE_EMPTY_SCHEMA), "failed", 0
+
+
+async def _run_kev_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    run_id: str,
+    period_start,
+    period_end,
+    base_path: str,
+    storage_options: dict | None,
+) -> tuple[pl.DataFrame, str]:
+    try:
+        key = cache_key("kev", {"feed_url": settings.kev_feed_url})
+        raw = await get_or_fetch(
+            key,
+            lambda: kev.fetch_kev_feed(client, settings.kev_feed_url),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+        valid, rejected = validate_batch(raw, KevEntry, source="kev", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "kev", run_id, rejected)
+        deduped = dedup.dedup_kev(valid)
+        new_entries = kev.filter_new_entries(deduped, period_start, period_end)
+        if len(new_entries) > settings.max_results_kev:
+            logger.warning("kev: cap MAX_RESULTS_KEV=%s atteint, résultats tronqués", settings.max_results_kev)
+            new_entries = new_entries[: settings.max_results_kev]
+        df = _records_to_frame(new_entries, _KEV_EMPTY_SCHEMA)
+        if df.height:
+            df = validate_kev_frame(df)
+        return df, "ok"
+    except Exception:
+        logger.exception("kev: échec de la source, run continue en dégradé")
+        return pl.DataFrame(schema=_KEV_EMPTY_SCHEMA), "failed"
+
+
+async def _run_feodo_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    run_id: str,
+    manifest: dict | None,
+    base_path: str,
+    storage_options: dict | None,
+) -> tuple[pl.DataFrame, str]:
+    try:
+        key = cache_key("feodo", {"feed_url": settings.feodo_feed_url})
+        raw = await get_or_fetch(
+            key,
+            lambda: feodo.fetch_feodo_snapshot(client, settings.feodo_feed_url),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+        valid, rejected = validate_batch(raw, FeodoIpRecord, source="feodo", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "feodo", run_id, rejected)
+        deduped = dedup.dedup_feodo(valid)
+        df = _records_to_frame(deduped, _FEODO_EMPTY_SCHEMA)
+        if df.height:
+            df = validate_feodo_frame(df.with_columns(pl.lit(None, dtype=pl.Boolean).alias("is_new")))
+            previous = diffing.load_previous_snapshot(manifest, "feodo", settings)
+            df = diffing.diff_snapshots(df, previous, "ip_address")
+        return df, "ok"
+    except Exception:
+        logger.exception("feodo: échec de la source, run continue en dégradé")
+        return pl.DataFrame(schema=_FEODO_EMPTY_SCHEMA), "failed"
+
+
+async def _run_urlhaus_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    run_id: str,
+    manifest: dict | None,
+    base_path: str,
+    storage_options: dict | None,
+) -> tuple[pl.DataFrame, str]:
+    try:
+        key = cache_key("urlhaus", {"feed_url": settings.urlhaus_feed_url})
+        raw = await get_or_fetch(
+            key,
+            lambda: urlhaus.fetch_urlhaus_online(client, settings.urlhaus_feed_url),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+        valid, rejected = validate_batch(raw, UrlhausEntry, source="urlhaus", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "urlhaus", run_id, rejected)
+        deduped = dedup.dedup_urlhaus(valid)
+        df = _records_to_frame(deduped, _URLHAUS_EMPTY_SCHEMA)
+        if df.height:
+            df = validate_urlhaus_frame(df.with_columns(pl.lit(None, dtype=pl.Boolean).alias("is_new")))
+            previous = diffing.load_previous_snapshot(manifest, "urlhaus", settings)
+            df = diffing.diff_snapshots(df, previous, "url")
+        return df, "ok"
+    except Exception:
+        logger.exception("urlhaus: échec de la source, run continue en dégradé")
+        return pl.DataFrame(schema=_URLHAUS_EMPTY_SCHEMA), "failed"
+
+
+def _build_top_cves(ranked_cve_df: pl.DataFrame, kev_df: pl.DataFrame) -> list[dict]:
+    if ranked_cve_df.height == 0:
+        return []
+    kev_by_id = {row["cve_id"]: row for row in kev_df.to_dicts()} if kev_df.height else {}
+    result = []
+    for row in ranked_cve_df.to_dicts():
+        kev_row = kev_by_id.get(row["cve_id"])
+        cwe_ids = row.get("cwe_ids") or []
+        result.append(
+            {
+                "cve_id": row["cve_id"],
+                "cvss_score": row.get("cvss_v3_score"),
+                "severity": row.get("cvss_v3_severity"),
+                "vendor": row.get("vendor"),
+                "product": None,
+                "cwe": cwe_ids[0] if cwe_ids else None,
+                "is_kev": kev_row is not None,
+                "is_ransomware": bool(kev_row and kev_row.get("known_ransomware_campaign_use") == "Known"),
+                "published_date": row["published_date"].isoformat()
+                if hasattr(row["published_date"], "isoformat")
+                else row["published_date"],
+                "kev_added_date": kev_row["date_added"].isoformat()
+                if kev_row and hasattr(kev_row["date_added"], "isoformat")
+                else None,
+            }
+        )
+    return result
+
+
+def _build_top_ips(ranked_feodo_df: pl.DataFrame, geo: dict[str, dict]) -> list[dict]:
+    if ranked_feodo_df.height == 0:
+        return []
+    result = []
+    for row in ranked_feodo_df.to_dicts():
+        g = geo.get(row["ip_address"], {})
+        result.append(
+            {
+                "ip": row["ip_address"],
+                "lat": g.get("lat"),
+                "lon": g.get("lon"),
+                "country": g.get("country") or row.get("country"),
+                "city": g.get("city"),
+                "asn": g.get("asn"),
+                "malware": row.get("malware"),
+                "source": "feodo",
+                "first_seen": row["first_seen"].isoformat()
+                if hasattr(row["first_seen"], "isoformat")
+                else row["first_seen"],
+                "last_seen": row["last_online"].isoformat()
+                if row.get("last_online") is not None and hasattr(row["last_online"], "isoformat")
+                else None,
+            }
+        )
+    return result
+
+
+async def run(force_refresh: bool = False) -> dict:
+    started_at = time.monotonic()
+    settings = load_settings()
+    settings = _override_force_refresh(settings, force_refresh)
+
+    if settings.sentry_dsn:
+        import sentry_sdk
+
+        sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.environment)
+
+    run_id = str(uuid4())
+    period_end = datetime.now(UTC)
+    period_start = period_end - timedelta(days=settings.report_window_days)
+
+    base_path = resolve_base_path(settings)
+    storage_options = resolve_storage_options(settings)
+
+    manifest = _read_json(base_path, storage_options, "manifest.json")
+    is_cold_start = manifest is None
+
+    sources_status: dict[str, str] = {}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        cve_df, nvd_status, cve_high_count = await _run_nvd_source(
+            client, settings, run_id, period_start, period_end, base_path, storage_options
+        )
+        sources_status["nvd"] = nvd_status
+        sentry_breadcrumb_run_step("extract_nvd", nvd_status)
+
+        kev_df, kev_status = await _run_kev_source(
+            client, settings, run_id, period_start, period_end, base_path, storage_options
+        )
+        sources_status["kev"] = kev_status
+        sentry_breadcrumb_run_step("extract_kev", kev_status)
+
+        feodo_df, feodo_status = await _run_feodo_source(client, settings, run_id, manifest, base_path, storage_options)
+        sources_status["feodo"] = feodo_status
+        sentry_breadcrumb_run_step("extract_feodo", feodo_status)
+
+        urlhaus_df, urlhaus_status = await _run_urlhaus_source(
+            client, settings, run_id, manifest, base_path, storage_options
+        )
+        sources_status["urlhaus"] = urlhaus_status
+        sentry_breadcrumb_run_step("extract_urlhaus", urlhaus_status)
+
+        joined = (
+            mttk.join_nvd_kev(cve_df, kev_df)
+            if cve_df.height and kev_df.height
+            else pl.DataFrame(schema={**_CVE_EMPTY_SCHEMA, "kev_date_added": pl.Datetime})
+        )
+        mean_time_to_kev = mttk.compute_mean_time_to_kev(joined)
+
+        ranked_cves = ranking.rank_top_n_cves(cve_df, n=10) if cve_df.height else cve_df
+        ranked_ips = ranking.rank_top_n_ips(feodo_df, n=10) if feodo_df.height else feodo_df
+
+        geo: dict[str, dict] = {}
+        if ranked_ips.height:
+            ip_records = [
+                FeodoIpRecord(**row) for row in ranked_ips.select(list(_FEODO_EMPTY_SCHEMA.keys())).to_dicts()
+            ]
+            geo_key = cache_key("geoloc", {"ips": sorted(r.ip_address for r in ip_records)})
+            geo_raw = await get_or_fetch(
+                geo_key,
+                lambda: _fetch_geo_wrapped(client, ip_records, settings.ip_api_batch_url),
+                settings.cache_dir,
+                settings.force_refresh,
+            )
+            geo = geo_raw[0] if geo_raw else {}
+
+        previous_kpis = _kpis_from_manifest(manifest)
+        report_kpis = kpis_module.compute_kpis(
+            cve_df, kev_df, feodo_df, urlhaus_df, mean_time_to_kev, previous_kpis, cve_high_count
+        )
+
+        top_cves = _build_top_cves(ranked_cves, kev_df)
+        top_ips = _build_top_ips(ranked_ips, geo)
+
+        # load
+        load_status = "success"
+        s3_parquet_keys: dict[str, str] = {}
+        period_end_str = period_end.strftime("%Y%m%d")
+        for source, df in (("nvd", cve_df), ("kev", kev_df), ("feodo", feodo_df), ("urlhaus", urlhaus_df)):
+            try:
+                if df.height:
+                    key = write_historical_parquet(df, source, period_end_str, run_id, base_path, storage_options)
+                    s3_parquet_keys[source] = key
+            except Exception:
+                logger.exception("load: échec écriture parquet pour %s", source)
+                load_status = "partial"
+
+        pipeline_duration_seconds = time.monotonic() - started_at
+
+        report_status = (
+            "success" if all(s == "ok" for s in sources_status.values()) and load_status == "success" else "partial"
+        )
+
+        # PDF rendu AVANT la construction du payload JSON — sinon un échec PDF ne pourrait
+        # mettre à jour `status` qu'après coup, sur un JSON déjà écrit sur disque (schéma
+        # incohérent entre le fichier écrit et manifest.json/webhook, cf. §4 CDC "un seul
+        # schéma de données à maintenir").
+        s3_pdf_key = None
+        try:
+            local_pdf_path = Path(settings.local_data_dir) / f".tmp-pdf-{run_id}.pdf"
+            local_pdf_path.parent.mkdir(parents=True, exist_ok=True)
+            pdf_context = {
+                "run_id": run_id,
+                "status": report_status,
+                "period_start": period_start.isoformat(),
+                "period_end": period_end.isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
+                "kpis": report_kpis,
+                "top_countries": report_kpis.top_countries,
+                "top_cves": top_cves,
+            }
+            render_pdf(pdf_context, local_pdf_path)
+
+            if storage_options is None:
+                final_path = Path(base_path) / f"reports/report-{period_end_str}-{run_id}.pdf"
+                final_path.parent.mkdir(parents=True, exist_ok=True)
+                local_pdf_path.replace(final_path)
+                s3_pdf_key = str(final_path)
+            else:
+                import fsspec
+
+                fs = fsspec.filesystem("s3", **storage_options)
+                remote_path = f"{base_path}/reports/report-{period_end_str}-{run_id}.pdf"
+                fs.put(str(local_pdf_path), remote_path)
+                local_pdf_path.unlink(missing_ok=True)
+                s3_pdf_key = remote_path
+        except Exception:
+            logger.exception("load: échec rendu PDF, run marqué partial")
+            report_status = "partial" if report_status == "success" else report_status
+
+        payload = build_report_payload(
+            run_id=run_id,
+            period_start=period_start.isoformat(),
+            period_end=period_end.isoformat(),
+            status=report_status,
+            kpis=report_kpis,
+            top_cves=top_cves,
+            top_ips=top_ips,
+            pipeline_duration_seconds=pipeline_duration_seconds,
+            sources_status=sources_status,
+            is_cold_start=is_cold_start,
+        )
+
+        s3_json_key = None
+        try:
+            s3_json_key = write_report_json(payload, period_end_str, run_id, base_path, storage_options)
+        except Exception:
+            logger.exception("load: échec écriture JSON, run marqué failed")
+            report_status = "failed"
+            payload["status"] = "failed"
+
+        run_entry = finalize_manifest_and_index(
+            run_id=run_id,
+            period_start=period_start.isoformat(),
+            period_end=period_end.isoformat(),
+            status=report_status,
+            sources_status=sources_status,
+            kpis=report_kpis,
+            s3_json_key=s3_json_key,
+            s3_pdf_key=s3_pdf_key,
+            s3_parquet_keys=s3_parquet_keys,
+            pipeline_duration_seconds=pipeline_duration_seconds,
+            base_path=base_path,
+            storage_options=storage_options,
+        )
+
+        webhook_status = await publish_status(
+            client, settings.backend_webhook_url, settings.threat_report_internal_secret, run_entry
+        )
+        sentry_breadcrumb_run_step("publish_webhook", webhook_status)
+
+        log_run_summary(run_id, pipeline_duration_seconds, sources_status, report_kpis)
+
+    return payload
+
+
+def _override_force_refresh(settings: Settings, force_refresh: bool) -> Settings:
+    if not force_refresh:
+        return settings
+    import dataclasses
+
+    return dataclasses.replace(settings, force_refresh=True)
+
+
+def _kpis_from_manifest(manifest: dict | None):
+    """Reconstruit un ReportKpis minimal depuis manifest.json — seul cve_critical_count
+    est réellement consommé en aval (compute_kpis ne calcule de trend que sur ce champ),
+    les autres champs sont des placeholders neutres."""
+    if manifest is None:
+        return None
+    return kpis_module.ReportKpis(
+        cve_critical_count=manifest.get("cve_critical_count", 0),
+        cve_critical_trend_pct=None,
+        cve_high_count=0,
+        kev_new_count=0,
+        kev_urgent_count=0,
+        kev_ransomware_count=0,
+        mean_time_to_kev_days=None,
+        c2_active_count=0,
+        malicious_url_count=0,
+        top_countries=[],
+        top_vendors=[],
+        cwe_distribution=[],
+    )
+
+
+def finalize_manifest_and_index(
+    run_id: str,
+    period_start: str,
+    period_end: str,
+    status: str,
+    sources_status: dict[str, str],
+    kpis,
+    s3_json_key: str | None,
+    s3_pdf_key: str | None,
+    s3_parquet_keys: dict[str, str],
+    pipeline_duration_seconds: float,
+    base_path: str,
+    storage_options: dict | None,
+) -> dict:
+    run_entry = {
+        "run_id": run_id,
+        "period_start": period_start,
+        "period_end": period_end,
+        "status": status,
+        "sources_status": sources_status,
+        "cve_critical_count": kpis.cve_critical_count,
+        "kev_new_count": kpis.kev_new_count,
+        "c2_active_count": kpis.c2_active_count,
+        "malicious_url_count": kpis.malicious_url_count,
+        "pipeline_duration_seconds": pipeline_duration_seconds,
+        "s3_json_key": s3_json_key,
+        "s3_pdf_key": s3_pdf_key,
+        "s3_parquet_keys": s3_parquet_keys,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+    index = _read_json(base_path, storage_options, "runs/index.json") or []
+    index.append(run_entry)
+    _write_json(base_path, storage_options, "runs/index.json", index)
+
+    if status in {"success", "partial"}:
+        _write_json(base_path, storage_options, "manifest.json", run_entry)
+
+    return run_entry
+
+
+def main() -> None:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    logging.basicConfig(level=logging.INFO)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force-refresh", action="store_true")
+    args = parser.parse_args()
+    asyncio.run(run(force_refresh=args.force_refresh))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,5 +1,6 @@
 # Secrets — NE JAMAIS COMMITER
 .env
+certs
 
 # Virtualenv Python
 .venv/
@@ -14,8 +15,9 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 
-# Cache local ETL (dev)
+# Cache local ETL (dev) + stockage local (STORAGE_BACKEND=local)
 .cache/
+.data/
 
 # Distribution / build
 dist/

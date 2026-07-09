@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "beesint-threat-report"
@@ -17,6 +17,8 @@ dependencies = [
     "python-dotenv>=1.0",
     "python-json-logger>=3.0",
     "sentry-sdk>=2.0",
+    "jinja2>=3.1",
+    "weasyprint>=62.0",
 ]
 
 [tool.setuptools.packages.find]

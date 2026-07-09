@@ -1,0 +1,26 @@
+{
+  "1234567": [
+    {
+      "id": "1234567",
+      "dateadded": "2026-06-01 10:00:00 UTC",
+      "url": "http://evil.example/mal.exe",
+      "url_status": "online",
+      "threat": "malware_download",
+      "tags": ["exe", "elf"],
+      "host": "evil.example",
+      "reporter": "abuse_ch"
+    }
+  ],
+  "1234568": [
+    {
+      "id": "1234568",
+      "dateadded": "2026-06-02 12:00:00 UTC",
+      "url": "http://bad.example/payload.bin",
+      "url_status": "online",
+      "threat": "malware_download",
+      "tags": [],
+      "host": "bad.example",
+      "reporter": "abuse_ch"
+    }
+  ]
+}

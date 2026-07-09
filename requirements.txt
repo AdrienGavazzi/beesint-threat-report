@@ -2,9 +2,14 @@ polars==1.17.1
 pydantic==2.10.3
 pydantic-settings==2.14.1
 pandera[polars]==0.20.4
-s3fs==2024.10.0
+s3fs==2026.6.0
 tenacity==9.0.0
 httpx==0.28.1
 python-dotenv==1.0.1
 python-json-logger==3.3.0
 sentry-sdk==2.19.2
+jinja2==3.1.4
+weasyprint==62.3
+# pin explicite : pydyf>=0.12 casse l'API Stream.transform que weasyprint 62.3 utilise
+# ("'super' object has no attribute 'transform'"), vérifié empiriquement sur Windows.
+pydyf==0.11.0

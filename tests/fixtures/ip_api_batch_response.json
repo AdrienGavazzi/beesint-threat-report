@@ -1,0 +1,18 @@
+[
+  {
+    "status": "success",
+    "country": "United States",
+    "countryCode": "US",
+    "city": "New York",
+    "lat": 40.7128,
+    "lon": -74.006,
+    "isp": "Example ISP",
+    "as": "AS64500 Example",
+    "query": "203.0.113.10"
+  },
+  {
+    "status": "fail",
+    "message": "private range",
+    "query": "198.51.100.20"
+  }
+]

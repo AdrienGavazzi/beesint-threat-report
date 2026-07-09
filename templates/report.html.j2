@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BeeSINT Threat Report — {{ period_end }}</title>
+<style>
+  @page { size: A4; margin: 2cm; }
+  body { font-family: sans-serif; color: #111; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 14px; margin-top: 24px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #eee; font-size: 11px; }
+  .kpi-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+  .kpi { border: 1px solid #ccc; padding: 8px 12px; min-width: 140px; }
+  .kpi .value { font-size: 18px; font-weight: bold; }
+  .kpi .label { font-size: 10px; color: #666; text-transform: uppercase; }
+  footer { margin-top: 32px; font-size: 9px; color: #888; }
+</style>
+</head>
+<body>
+  <h1>BeeSINT Threat Report — {{ period_start }} → {{ period_end }}</h1>
+  <p>Run {{ run_id }} — statut {{ status }}</p>
+
+  <h2>KPIs</h2>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="value">{{ kpis.cve_critical_count }}</div><div class="label">CVE Critiques</div></div>
+    <div class="kpi"><div class="value">{{ kpis.cve_high_count }}</div><div class="label">CVE High</div></div>
+    <div class="kpi"><div class="value">{{ kpis.kev_new_count }}</div><div class="label">Nouvelles KEV</div></div>
+    <div class="kpi"><div class="value">{{ kpis.mean_time_to_kev_days if kpis.mean_time_to_kev_days is not none else "N/A" }}</div><div class="label">Mean Time to KEV (j)</div></div>
+    <div class="kpi"><div class="value">{{ kpis.c2_active_count }}</div><div class="label">C2 actifs</div></div>
+    <div class="kpi"><div class="value">{{ kpis.malicious_url_count }}</div><div class="label">URLs malveillantes</div></div>
+  </div>
+
+  <h2>Top 10 pays (infrastructure C2)</h2>
+  <table>
+    <tr><th>Pays</th><th>Count</th></tr>
+    {% for row in top_countries %}
+    <tr><td>{{ row.country }}</td><td>{{ row.count }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Top CVE</h2>
+  <table>
+    <tr><th>CVE</th><th>Score</th><th>Vendor</th></tr>
+    {% for cve in top_cves %}
+    <tr><td>{{ cve.cve_id }}</td><td>{{ cve.cvss_score }}</td><td>{{ cve.vendor }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <footer>
+    Data kindly provided by abuse.ch (FeodoTracker, URLhaus) — NVD/CISA KEV (domaine public).
+    BeeSINT Threat Report — généré le {{ generated_at }}.
+  </footer>
+</body>
+</html>
