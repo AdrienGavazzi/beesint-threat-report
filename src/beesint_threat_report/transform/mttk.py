@@ -13,3 +13,10 @@ def compute_mean_time_to_kev(joined_df: pl.DataFrame) -> float | None:
         return None
     deltas = (joined_df["kev_date_added"] - joined_df["published_date"]).dt.total_days()
     return float(deltas.mean())
+
+
+def compute_median_time_to_kev(joined_df: pl.DataFrame) -> float | None:
+    if joined_df.height == 0:
+        return None
+    deltas = (joined_df["kev_date_added"] - joined_df["published_date"]).dt.total_days()
+    return float(deltas.median())

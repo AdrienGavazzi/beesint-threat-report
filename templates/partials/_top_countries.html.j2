@@ -1,0 +1,16 @@
+<section class="section">
+  <h2 class="section-title">Top 10 Countries - C2 Infrastructure</h2>
+  {% if geo.top_countries %}
+  <div>
+    {% for item in geo.top_countries %}
+    <div class="bar-row">
+      <div class="bar-label">{{ item.country_name }} ({{ item.country_code }})</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width: {{ item.pct_of_total }}%"></div>
+      </div>
+      <div class="bar-count">{{ item.count }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>

@@ -39,7 +39,11 @@ async def publish_status(
     payload: dict,
 ) -> str:
     if webhook_url is None:
-        logger.info("webhook: dry-run (BACKEND_WEBHOOK_URL absent), payload=%s", payload)
+        logger.info(
+            "webhook: dry-run (BACKEND_WEBHOOK_URL absent) - run %s status=%s",
+            payload.get("run_id"),
+            payload.get("status"),
+        )
         return "dry_run"
 
     try:

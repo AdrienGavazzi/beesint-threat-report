@@ -1,0 +1,33 @@
+<section class="section">
+  <h2 class="section-title">Contents</h2>
+  <ol class="summary-list">
+    <li>New critical CVEs &amp; trend</li>
+    <li>CISA KEV additions &amp; urgency</li>
+    <li>Mean-Time-to-KEV</li>
+    <li>Active C2 infrastructure</li>
+    <li>Malicious URLs online</li>
+    <li>Top 10 countries</li>
+    <li>Top vendors</li>
+    <li>CWE breakdown</li>
+    <li>Pipeline lineage &amp; source attribution</li>
+  </ol>
+
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="value">{{ report.kpi_summary.cve_critical_count }}</div>
+      <div class="label">Critical CVEs</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ report.kpi_summary.kev_new_count }}</div>
+      <div class="label">New KEV entries</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ report.kpi_summary.c2_active_count }}</div>
+      <div class="label">Active C2 IPs</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ report.kpi_summary.malicious_url_count }}</div>
+      <div class="label">Malicious URLs</div>
+    </div>
+  </div>
+</section>

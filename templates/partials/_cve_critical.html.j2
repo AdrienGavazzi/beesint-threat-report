@@ -1,0 +1,50 @@
+<section class="section">
+  <h2 class="section-title">New Critical CVEs</h2>
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="value">{{ cve.critical_count }}</div>
+      <div class="label">Critical this week</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">
+        {% if cve.critical_trend_pct is none %}
+          N/A
+        {% elif cve.critical_trend_pct >= 0 %}
+          <span class="trend-up">+{{ cve.critical_trend_pct }}%</span>
+        {% else %}
+          <span class="trend-down">{{ cve.critical_trend_pct }}%</span>
+        {% endif %}
+      </div>
+      <div class="label">Trend vs previous run</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ cve.high_volume_count }}</div>
+      <div class="label">High severity volume</div>
+    </div>
+  </div>
+
+  {% if cve.critical_items %}
+  <table>
+    <thead>
+      <tr>
+        <th class="mono">CVE</th>
+        <th>Description</th>
+        <th>CVSS</th>
+        <th>Published</th>
+        <th>Vendor</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in cve.critical_items %}
+      <tr>
+        <td class="mono">{{ item.cve_id }}</td>
+        <td>{{ item.description }}</td>
+        <td class="mono">{{ item.cvss_score if item.cvss_score is not none else "N/A" }}</td>
+        <td>{{ item.published_date }}</td>
+        <td>{{ item.vendor if item.vendor else "N/A" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>

@@ -1,0 +1,36 @@
+<section class="section">
+  <h2 class="section-title">Active C2 Infrastructure</h2>
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="value">{{ c2.active_count }}</div>
+      <div class="label">Active C2 IPs</div>
+    </div>
+  </div>
+
+  {% if c2['items'] %}
+  <table>
+    <thead>
+      <tr>
+        <th class="mono">IP address</th>
+        <th>Country</th>
+        <th>ASN</th>
+        <th>Malware family</th>
+        <th>First seen</th>
+        <th>Last online</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in c2['items'] %}
+      <tr>
+        <td class="mono">{{ item.ip_address }}</td>
+        <td>{{ item.country if item.country else "N/A" }}</td>
+        <td class="mono">{{ item.asn if item.asn else "N/A" }}</td>
+        <td>{{ item.malware_family if item.malware_family else "N/A" }}</td>
+        <td>{{ item.first_seen if item.first_seen else "N/A" }}</td>
+        <td>{{ item.last_online if item.last_online else "N/A" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>

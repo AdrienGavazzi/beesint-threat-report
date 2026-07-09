@@ -1,0 +1,17 @@
+<section class="section">
+  <h2 class="section-title">Mean-Time-to-KEV</h2>
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="value">{{ mttk.average_days if mttk.average_days is not none else "N/A" }}</div>
+      <div class="label">Average (days)</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ mttk.median_days if mttk.median_days is not none else "N/A" }}</div>
+      <div class="label">Median (days)</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ mttk.sample_size }}</div>
+      <div class="label">Sample size</div>
+    </div>
+  </div>
+</section>

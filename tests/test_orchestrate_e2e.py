@@ -15,6 +15,7 @@ KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulner
 FEODO_URL = "https://feodotracker.abuse.ch/downloads/ipblocklist.json"
 URLHAUS_URL = "https://urlhaus.abuse.ch/downloads/json_online/"
 IPAPI_URL = "http://ip-api.com/batch"
+THREATFOX_URL = "https://threatfox-api.abuse.ch/api/v1/"
 
 BUCKET = "test-threat-report-bucket"
 
@@ -50,7 +51,7 @@ def _s3_client(endpoint):
     )
 
 
-def _settings(tmp_path, endpoint: str) -> Settings:
+def _settings(tmp_path, endpoint: str, threatfox_auth_key: str | None = None) -> Settings:
     return Settings(
         storage_backend="s3",
         s3_bucket=BUCKET,
@@ -59,6 +60,7 @@ def _settings(tmp_path, endpoint: str) -> Settings:
         s3_secret_key="test",
         cache_dir=tmp_path / ".cache",
         local_data_dir=tmp_path / ".data",
+        threatfox_auth_key=threatfox_auth_key,
     )
 
 
@@ -132,3 +134,29 @@ async def test_orchestrate_e2e_degraded_source_still_produces_partial_report(tmp
     assert payload["sources_status"]["kev"] == "ok"
     assert payload["sources_status"]["urlhaus"] == "ok"
     assert len(payload["cves"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_orchestrate_e2e_threatfox_active_merges_iocs_and_stays_success(tmp_path, monkeypatch, moto_server):
+    # équivalent local du "run manuel workflow_dispatch avec ThreatFox actif" (lot 7 DoD) —
+    # le vrai run cloud avec Auth-Key réelle reste à exécuter manuellement par l'utilisateur
+    # (aucun outillage cloud exécuté par l'assistant, cf. CDC §1).
+    monkeypatch.setattr(orchestrate, "load_settings", lambda: _settings(tmp_path, moto_server, "secret-key"))
+    monkeypatch.setattr(orchestrate, "render_pdf", _stub_render_pdf)
+
+    with respx.mock() as mock:
+        _mock_all_sources(mock)
+        route = mock.post(THREATFOX_URL).mock(
+            return_value=httpx.Response(200, json=load_fixture("threatfox_get_iocs.json"))
+        )
+        payload = await orchestrate.run()
+
+    assert route.called
+    assert payload["status"] == "success"
+    assert payload["sources_status"]["threatfox"] == "ok"
+    # 203.0.113.10 est aussi une IP feodo (fixture feodo_ipblocklist.json) -> fusion attendue
+    merged = next((ip for ip in payload["malicious_ips"] if ip["ip"] == "203.0.113.10"), None)
+    assert merged is not None
+    assert merged["source"] == "feodo+threatfox"
+    # TrickBot (domain) + Dridex (md5_hash) dans la fixture threatfox -> 2 familles
+    assert payload["kpis"]["threatfox_malware_families_count"] == 2

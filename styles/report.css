@@ -1,0 +1,312 @@
+/* BeeSINT Threat Report — feuille de style unique du PDF.
+   Tokens copiés de beesint-frontend/design-system.md (Lot 5, à resynchroniser manuellement
+   si la DA change côté frontend — les deux repos sont indépendants, CDC §1).
+   Fond clair pour l'impression (pas le thème dark de l'app) : seuls bg/texte de base
+   s'inversent, les couleurs d'accent restent identiques à l'app. */
+
+@font-face {
+  font-family: "Syne";
+  src: url("../templates/fonts/Syne/Syne-Regular.woff2") format("woff2");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "Syne";
+  src: url("../templates/fonts/Syne/Syne-Bold.woff2") format("woff2");
+  font-weight: 700;
+}
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("../templates/fonts/PlusJakartaSans/PlusJakartaSans-Regular.woff2") format("woff2");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("../templates/fonts/PlusJakartaSans/PlusJakartaSans-Medium.woff2") format("woff2");
+  font-weight: 500;
+}
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("../templates/fonts/PlusJakartaSans/PlusJakartaSans-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../templates/fonts/JetBrainsMono/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../templates/fonts/JetBrainsMono/JetBrainsMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+}
+
+:root {
+  --color-bg-base: #FFFFFF;
+  --color-bg-surface: #F7F9FC;
+  --color-bg-elevated: #EEF2F7;
+  --color-border: #D6DEE8;
+  --color-border-subtle: #E6EBF2;
+  --color-primary: #0EA5E9;
+  --color-primary-light: #38BDF8;
+  --color-primary-dark: #0284C7;
+  --color-accent-gold: #F59E0B;
+  --color-text-body: #101826;
+  --color-text-muted: #5C6B80;
+  --color-text-mono: #0284C7;
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+  --color-on-primary: #070A10;
+
+  --font-display: "Syne", sans-serif;
+  --font-sans: "Plus Jakarta Sans", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+}
+
+/* WeasyPrint n'est pas un navigateur : @page pilote marges + pied de page récurrent via les
+   margin boxes CSS (`@bottom-center`/`@bottom-left`/`@bottom-right`), syntaxe absente du CSS
+   "navigateur classique" — seul endroit où ce fichier diverge nettement (CDC §24, vérifié
+   empiriquement). Pas de -webkit-print-color-adjust : WeasyPrint n'a aucun comportement
+   d'économie d'encre à contourner, ce hack n'aurait aucun effet ici. */
+@page {
+  size: A4;
+  margin: 2.2cm 1.8cm 2.6cm 1.8cm;
+
+  @bottom-left {
+    content: "Data kindly provided by abuse.ch";
+    font-family: var(--font-mono);
+    font-size: 7.5px;
+    color: var(--color-text-muted);
+  }
+  @bottom-right {
+    content: "Sources: NVD, CISA KEV, ip-api.com";
+    font-family: var(--font-mono);
+    font-size: 7.5px;
+    color: var(--color-text-muted);
+  }
+  @bottom-center {
+    content: counter(page) " / " counter(pages);
+    font-family: var(--font-mono);
+    font-size: 7.5px;
+    color: var(--color-text-muted);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  color: var(--color-text-body);
+  background: var(--color-bg-base);
+  line-height: 1.5;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  margin: 0 0 4px 0;
+}
+
+.section {
+  break-inside: avoid-page;
+  margin-bottom: 22px;
+}
+
+.section-title {
+  /* .section-title cible des <h2> : la règle h1,h2,h3 pose font-weight:700, jamais
+     surchargée ici -> JetBrains Mono à 700 (non embarqué, seuls 400/500 le sont) -> police
+     système en fallback silencieux selon la machine. Reset explicite, même raison que la
+     règle th. */
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary-dark);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 4px;
+  margin-bottom: 10px;
+}
+
+.run-id {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--color-text-muted);
+}
+
+/* Page de garde */
+.cover {
+  height: 24cm;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.cover .hero-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  margin-bottom: 10px;
+}
+.cover h1 {
+  font-size: 34px;
+  line-height: 1.15;
+}
+.cover .period {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-top: 10px;
+}
+.cover .run-id {
+  position: absolute;
+  bottom: 1.4cm;
+  left: 1.8cm;
+}
+
+/* Sommaire */
+.summary-list {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-text-muted);
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px 0;
+}
+.summary-list li {
+  padding: 3px 0;
+  border-bottom: 1px dotted var(--color-border-subtle);
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.kpi-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  padding: 10px 12px;
+}
+.kpi-card .value {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-primary-dark);
+}
+.kpi-card .label {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th {
+  /* font-weight explicite : le poids "bold" (700) par défaut du user-agent stylesheet sur
+     <th> n'existe pas en JetBrains Mono (seuls 400/500 sont embarqués) — sans ce reset,
+     WeasyPrint retombe sur le générique "monospace" -> Courier New système (police de
+     fallback interdite, cf. lot 5 "aucune police système de fallback"). */
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+td {
+  font-size: 9.5px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  vertical-align: top;
+}
+td.mono, th.mono {
+  font-family: var(--font-mono);
+}
+
+.badge {
+  /* font-weight explicite : un badge dans .kpi-card .value (font-weight:700) hériterait ce
+     700 en JetBrains Mono (non embarqué en 700) -> fallback système, même raison que les
+     règles th et .section-title ci-dessus. */
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 7.5px;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+.badge-error {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--color-error);
+}
+.badge-neutral {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-muted);
+}
+
+.trend-up { color: var(--color-error); }
+.trend-down { color: var(--color-success); }
+
+/* Barres horizontales CSS pures — réutilisées par top pays / top vendors / répartition CWE
+   (pas de lib de graph pour un simple bar chart, cf. lot 5 §8). */
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.bar-row .bar-label {
+  flex: 0 0 34%;
+  font-size: 9.5px;
+}
+.bar-row .bar-track {
+  flex: 1 1 auto;
+  height: 8px;
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.bar-row .bar-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: var(--radius-sm);
+}
+.bar-row .bar-count {
+  flex: 0 0 40px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+
+.lineage-sources {
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+.lineage-sources li {
+  margin-bottom: 3px;
+}
+.lineage-sources strong {
+  /* <strong> = bold (700) UA par défaut, absent en Plus Jakarta Sans (400/500/600 seulement
+     embarqués) -> fallback système sans ce reset, même raison que la règle th ci-dessus. */
+  font-weight: 600;
+}

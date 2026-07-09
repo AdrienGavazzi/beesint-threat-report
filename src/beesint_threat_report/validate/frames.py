@@ -49,6 +49,20 @@ UrlhausFrameSchema = pa.DataFrameSchema(
 )
 
 
+_IP_FRAME_SOURCES = ["feodo", "urlhaus", "both", "threatfox", "feodo+threatfox", "urlhaus+threatfox", "both+threatfox"]
+
+IpThreatFrameSchema = pa.DataFrameSchema(
+    {
+        "ip_address": pa.Column(pl.Utf8, unique=True),
+        "status": pa.Column(pl.Utf8, pa.Check.isin(["online", "offline"])),
+        "first_seen": pa.Column(_UTC_DATETIME),
+        "is_new": pa.Column(pl.Boolean, nullable=True),
+        "source": pa.Column(pl.Utf8, pa.Check.isin(_IP_FRAME_SOURCES)),
+    },
+    strict=False,
+)
+
+
 def validate_cve_frame(df: pl.DataFrame) -> pl.DataFrame:
     return CveFrameSchema.validate(df, lazy=True)
 
@@ -63,3 +77,7 @@ def validate_feodo_frame(df: pl.DataFrame) -> pl.DataFrame:
 
 def validate_urlhaus_frame(df: pl.DataFrame) -> pl.DataFrame:
     return UrlhausFrameSchema.validate(df, lazy=True)
+
+
+def validate_ip_threat_frame(df: pl.DataFrame) -> pl.DataFrame:
+    return IpThreatFrameSchema.validate(df, lazy=True)

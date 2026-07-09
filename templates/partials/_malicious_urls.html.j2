@@ -1,0 +1,32 @@
+<section class="section">
+  <h2 class="section-title">Malicious URLs Online</h2>
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="value">{{ malicious_urls.online_count }}</div>
+      <div class="label">Online now</div>
+    </div>
+  </div>
+
+  {% if malicious_urls['items'] %}
+  <table>
+    <thead>
+      <tr>
+        <th>URL</th>
+        <th>Threat type</th>
+        <th>Tags</th>
+        <th>Added</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in malicious_urls['items'] %}
+      <tr>
+        <td class="mono">{{ item.url }}</td>
+        <td>{{ item.threat_type if item.threat_type else "N/A" }}</td>
+        <td>{{ item.tags | join(", ") if item.tags else "-" }}</td>
+        <td>{{ item.date_added }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>

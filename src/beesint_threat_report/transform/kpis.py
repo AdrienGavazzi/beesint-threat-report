@@ -23,6 +23,8 @@ class ReportKpis:
     top_countries: list[dict]  # [{country, count}], top 10
     top_vendors: list[dict]  # [{vendor, count}]
     cwe_distribution: list[dict]  # [{cwe_id, count}]
+    threatfox_malware_families_count: int = 0  # familles distinctes sur IOC domaine/hash (lot 7)
+    threatfox_malware_families_trend_pct: float | None = None
 
 
 def _trend_pct(current: int, previous: int | None) -> float | None:
@@ -52,6 +54,7 @@ def compute_kpis(
     mean_time_to_kev: float | None,
     previous_kpis: ReportKpis | None,
     cve_high_count: int = 0,
+    threatfox_iocs: list | None = None,
 ) -> ReportKpis:
     cve_critical_count = cve_df.height
 
@@ -90,6 +93,13 @@ def compute_kpis(
     else:
         cwe_distribution = []
 
+    domain_hash_iocs = [i for i in (threatfox_iocs or []) if i.ioc_type in {"domain", "md5_hash", "sha256_hash"}]
+    threatfox_malware_families_count = len({i.malware_printable for i in domain_hash_iocs})
+    threatfox_malware_families_trend_pct = _trend_pct(
+        threatfox_malware_families_count,
+        previous_kpis.threatfox_malware_families_count if previous_kpis else None,
+    )
+
     return ReportKpis(
         cve_critical_count=cve_critical_count,
         cve_critical_trend_pct=_trend_pct(
@@ -105,4 +115,6 @@ def compute_kpis(
         top_countries=top_countries,
         top_vendors=top_vendors,
         cwe_distribution=cwe_distribution,
+        threatfox_malware_families_count=threatfox_malware_families_count,
+        threatfox_malware_families_trend_pct=threatfox_malware_families_trend_pct,
     )

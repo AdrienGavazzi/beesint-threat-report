@@ -14,17 +14,20 @@ import polars as pl
 
 from beesint_threat_report.cache.store import cache_key, get_or_fetch
 from beesint_threat_report.config import Settings, load_settings, resolve_base_path, resolve_storage_options
-from beesint_threat_report.extract import feodo, kev, nvd, urlhaus
+from beesint_threat_report.extract import feodo, kev, nvd, threatfox, urlhaus
 from beesint_threat_report.load.json_writer import build_report_payload, write_report_json
 from beesint_threat_report.load.parquet_writer import write_historical_parquet
+from beesint_threat_report.load.pdf_context import build_c2_items, build_malicious_url_items, build_pdf_context
 from beesint_threat_report.load.pdf_renderer import render_pdf
 from beesint_threat_report.publish.telemetry import log_run_summary, sentry_breadcrumb_run_step
 from beesint_threat_report.publish.webhook import publish_status
 from beesint_threat_report.transform import dedup, diffing, geoloc, mttk, ranking
 from beesint_threat_report.transform import kpis as kpis_module
+from beesint_threat_report.transform.threatfox import merge_threatfox_ip_iocs
 from beesint_threat_report.validate.frames import (
     validate_cve_frame,
     validate_feodo_frame,
+    validate_ip_threat_frame,
     validate_kev_frame,
     validate_urlhaus_frame,
 )
@@ -32,6 +35,7 @@ from beesint_threat_report.validate.schemas import (
     FeodoIpRecord,
     KevEntry,
     NvdCveRecord,
+    ThreatFoxIoc,
     UrlhausEntry,
     validate_batch,
 )
@@ -45,12 +49,15 @@ _CVE_EMPTY_SCHEMA = {
     "cvss_v3_severity": pl.Utf8,
     "vendor": pl.Utf8,
     "cwe_ids": pl.List(pl.Utf8),
+    "description": pl.Utf8,
 }
 _KEV_EMPTY_SCHEMA = {
     "cve_id": pl.Utf8,
     "date_added": pl.Datetime,
     "due_date": pl.Datetime,
     "known_ransomware_campaign_use": pl.Utf8,
+    "vendor_project": pl.Utf8,
+    "product": pl.Utf8,
 }
 _FEODO_EMPTY_SCHEMA = {
     "ip_address": pl.Utf8,
@@ -64,6 +71,8 @@ _URLHAUS_EMPTY_SCHEMA = {
     "url": pl.Utf8,
     "url_status": pl.Utf8,
     "date_added": pl.Datetime,
+    "threat": pl.Utf8,
+    "tags": pl.List(pl.Utf8),
 }
 
 
@@ -281,6 +290,40 @@ async def _run_urlhaus_source(
         return pl.DataFrame(schema=_URLHAUS_EMPTY_SCHEMA), "failed"
 
 
+async def _run_threatfox_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    run_id: str,
+    period_end,
+    base_path: str,
+    storage_options: dict | None,
+) -> tuple[list[ThreatFoxIoc], str]:
+    if not settings.threatfox_auth_key:
+        return [], "skipped:no_auth_key"
+    try:
+        key = cache_key(
+            "threatfox",
+            {"period_end_date": period_end.date().isoformat(), "days": settings.report_window_days},
+        )
+        raw = await get_or_fetch(
+            key,
+            lambda: threatfox.fetch_threatfox(
+                client, settings.threatfox_auth_key, settings.report_window_days, settings.threatfox_base_url
+            ),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+        valid, rejected = validate_batch(raw, ThreatFoxIoc, source="threatfox", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "threatfox", run_id, rejected)
+        return valid, "ok"
+    except threatfox.ThreatFoxAuthError:
+        logger.warning("threatfox: Auth-Key invalide, étape ignorée")
+        return [], "skipped:invalid_auth_key"
+    except Exception:
+        logger.exception("threatfox: échec de la source, run continue en dégradé")
+        return [], "failed"
+
+
 def _build_top_cves(ranked_cve_df: pl.DataFrame, kev_df: pl.DataFrame) -> list[dict]:
     if ranked_cve_df.height == 0:
         return []
@@ -292,6 +335,7 @@ def _build_top_cves(ranked_cve_df: pl.DataFrame, kev_df: pl.DataFrame) -> list[d
         result.append(
             {
                 "cve_id": row["cve_id"],
+                "description": row.get("description"),
                 "cvss_score": row.get("cvss_v3_score"),
                 "severity": row.get("cvss_v3_severity"),
                 "vendor": row.get("vendor"),
@@ -325,7 +369,7 @@ def _build_top_ips(ranked_feodo_df: pl.DataFrame, geo: dict[str, dict]) -> list[
                 "city": g.get("city"),
                 "asn": g.get("asn"),
                 "malware": row.get("malware"),
-                "source": "feodo",
+                "source": row.get("source", "feodo"),
                 "first_seen": row["first_seen"].isoformat()
                 if hasattr(row["first_seen"], "isoformat")
                 else row["first_seen"],
@@ -382,15 +426,28 @@ async def run(force_refresh: bool = False) -> dict:
         sources_status["urlhaus"] = urlhaus_status
         sentry_breadcrumb_run_step("extract_urlhaus", urlhaus_status)
 
+        threatfox_iocs, threatfox_status = await _run_threatfox_source(
+            client, settings, run_id, period_end, base_path, storage_options
+        )
+        sources_status["threatfox"] = threatfox_status
+        sentry_breadcrumb_run_step("extract_threatfox", threatfox_status)
+
+        ip_frame = merge_threatfox_ip_iocs(feodo_df, threatfox_iocs)
+        if ip_frame.height:
+            ip_frame = validate_ip_threat_frame(ip_frame)
+
         joined = (
             mttk.join_nvd_kev(cve_df, kev_df)
             if cve_df.height and kev_df.height
             else pl.DataFrame(schema={**_CVE_EMPTY_SCHEMA, "kev_date_added": pl.Datetime})
         )
         mean_time_to_kev = mttk.compute_mean_time_to_kev(joined)
+        median_time_to_kev = mttk.compute_median_time_to_kev(joined)
+        mttk_sample_size = joined.height
 
         ranked_cves = ranking.rank_top_n_cves(cve_df, n=10) if cve_df.height else cve_df
-        ranked_ips = ranking.rank_top_n_ips(feodo_df, n=10) if feodo_df.height else feodo_df
+        ranked_ips = ranking.rank_top_n_ips(ip_frame, n=10) if ip_frame.height else ip_frame
+        ranked_urls = ranking.rank_top_n_urls(urlhaus_df, n=10) if urlhaus_df.height else urlhaus_df
 
         geo: dict[str, dict] = {}
         if ranked_ips.height:
@@ -408,11 +465,13 @@ async def run(force_refresh: bool = False) -> dict:
 
         previous_kpis = _kpis_from_manifest(manifest)
         report_kpis = kpis_module.compute_kpis(
-            cve_df, kev_df, feodo_df, urlhaus_df, mean_time_to_kev, previous_kpis, cve_high_count
+            cve_df, kev_df, ip_frame, urlhaus_df, mean_time_to_kev, previous_kpis, cve_high_count, threatfox_iocs
         )
 
         top_cves = _build_top_cves(ranked_cves, kev_df)
         top_ips = _build_top_ips(ranked_ips, geo)
+        c2_items = build_c2_items(top_ips)
+        malicious_url_items = build_malicious_url_items(ranked_urls)
 
         # load
         load_status = "success"
@@ -429,8 +488,12 @@ async def run(force_refresh: bool = False) -> dict:
 
         pipeline_duration_seconds = time.monotonic() - started_at
 
+        # "skipped*" (ThreatFox sans Auth-Key/Auth-Key invalide, lot 7 optionnel) ne dégrade
+        # jamais le statut global — seul un "failed" (échec réel d'une source) le fait.
         report_status = (
-            "success" if all(s == "ok" for s in sources_status.values()) and load_status == "success" else "partial"
+            "success"
+            if all(s == "ok" or s.startswith("skipped") for s in sources_status.values()) and load_status == "success"
+            else "partial"
         )
 
         # PDF rendu AVANT la construction du payload JSON — sinon un échec PDF ne pourrait
@@ -441,16 +504,21 @@ async def run(force_refresh: bool = False) -> dict:
         try:
             local_pdf_path = Path(settings.local_data_dir) / f".tmp-pdf-{run_id}.pdf"
             local_pdf_path.parent.mkdir(parents=True, exist_ok=True)
-            pdf_context = {
-                "run_id": run_id,
-                "status": report_status,
-                "period_start": period_start.isoformat(),
-                "period_end": period_end.isoformat(),
-                "generated_at": datetime.now(UTC).isoformat(),
-                "kpis": report_kpis,
-                "top_countries": report_kpis.top_countries,
-                "top_cves": top_cves,
-            }
+            pdf_context = build_pdf_context(
+                run_id=run_id,
+                period_start=period_start,
+                period_end=period_end,
+                generated_at=datetime.now(UTC),
+                kpis=report_kpis,
+                critical_items=top_cves,
+                kev_df=kev_df,
+                mttk_median_days=median_time_to_kev,
+                mttk_sample_size=mttk_sample_size,
+                feodo_df=ip_frame,
+                c2_items=c2_items,
+                malicious_url_items=malicious_url_items,
+                pipeline_duration_seconds=pipeline_duration_seconds,
+            )
             render_pdf(pdf_context, local_pdf_path)
 
             if storage_options is None:
@@ -525,9 +593,9 @@ def _override_force_refresh(settings: Settings, force_refresh: bool) -> Settings
 
 
 def _kpis_from_manifest(manifest: dict | None):
-    """Reconstruit un ReportKpis minimal depuis manifest.json — seul cve_critical_count
-    est réellement consommé en aval (compute_kpis ne calcule de trend que sur ce champ),
-    les autres champs sont des placeholders neutres."""
+    """Reconstruit un ReportKpis minimal depuis manifest.json — seuls cve_critical_count et
+    threatfox_malware_families_count sont réellement consommés en aval (compute_kpis ne
+    calcule de trend que sur ces champs), les autres champs sont des placeholders neutres."""
     if manifest is None:
         return None
     return kpis_module.ReportKpis(
@@ -543,6 +611,7 @@ def _kpis_from_manifest(manifest: dict | None):
         top_countries=[],
         top_vendors=[],
         cwe_distribution=[],
+        threatfox_malware_families_count=manifest.get("threatfox_malware_families_count", 0),
     )
 
 
@@ -570,6 +639,7 @@ def finalize_manifest_and_index(
         "kev_new_count": kpis.kev_new_count,
         "c2_active_count": kpis.c2_active_count,
         "malicious_url_count": kpis.malicious_url_count,
+        "threatfox_malware_families_count": kpis.threatfox_malware_families_count,
         "pipeline_duration_seconds": pipeline_duration_seconds,
         "s3_json_key": s3_json_key,
         "s3_pdf_key": s3_pdf_key,
@@ -591,7 +661,11 @@ def main() -> None:
     from dotenv import load_dotenv
 
     load_dotenv()
-    logging.basicConfig(level=logging.INFO)
+    # ponytail: root à WARNING pour couper le bruit des libs tierces (httpx logue chaque
+    # requête HTTP en INFO, fontTools.subset logue chaque étape du PDF) — seul le pipeline
+    # (logger "beesint_threat_report") reste en INFO. Étendre si un autre lib devient bruyante.
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+    logging.getLogger("beesint_threat_report").setLevel(logging.INFO)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--force-refresh", action="store_true")

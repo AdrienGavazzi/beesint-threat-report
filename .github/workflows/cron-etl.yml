@@ -27,6 +27,7 @@ jobs:
       ORACLE_S3_BUCKET: ${{ secrets.ORACLE_S3_BUCKET }}
       THREAT_REPORT_INTERNAL_SECRET: ${{ secrets.THREAT_REPORT_INTERNAL_SECRET }}
       SENTRY_DSN_THREAT_REPORT: ${{ secrets.SENTRY_DSN_THREAT_REPORT }}
+      THREATFOX_AUTH_KEY: ${{ secrets.THREATFOX_AUTH_KEY }}
     steps:
       - uses: actions/checkout@v4
 

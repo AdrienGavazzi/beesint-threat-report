@@ -37,6 +37,8 @@ def build_report_payload(
             "mean_time_to_kev_days": kpis.mean_time_to_kev_days,
             "c2_active_count": kpis.c2_active_count,
             "malicious_url_count": kpis.malicious_url_count,
+            "threatfox_malware_families_count": kpis.threatfox_malware_families_count,
+            "threatfox_malware_families_trend_pct": kpis.threatfox_malware_families_trend_pct,
         },
         "cves": top_cves,
         "malicious_ips": top_ips,

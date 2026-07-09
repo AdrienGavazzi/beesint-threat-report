@@ -25,6 +25,8 @@ class Settings:
     feodo_feed_url: str = "https://feodotracker.abuse.ch/downloads/ipblocklist.json"
     urlhaus_feed_url: str = "https://urlhaus.abuse.ch/downloads/json_online/"
     ip_api_batch_url: str = "http://ip-api.com/batch"
+    threatfox_auth_key: str | None = None  # optionnel (Lot 7) — étape sautée si absente
+    threatfox_base_url: str = "https://threatfox-api.abuse.ch/api/v1/"
 
     # Stockage
     storage_backend: str = "local"  # "local" | "s3"
@@ -75,6 +77,7 @@ def load_settings() -> Settings:
         max_results_nvd=_get_int("MAX_RESULTS_NVD", 2000),
         max_results_kev=_get_int("MAX_RESULTS_KEV", 5000),
         nvd_api_key=os.environ.get("NVD_API_KEY") or None,
+        threatfox_auth_key=os.environ.get("THREATFOX_AUTH_KEY") or None,
         storage_backend=storage_backend,
         s3_bucket=os.environ.get("ORACLE_S3_BUCKET") or None,
         s3_endpoint_url=os.environ.get("ORACLE_S3_ENDPOINT") or None,

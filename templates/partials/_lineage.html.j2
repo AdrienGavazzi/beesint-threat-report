@@ -1,0 +1,17 @@
+<section class="section">
+  <h2 class="section-title">Pipeline Lineage &amp; Source Attribution</h2>
+  <table>
+    <tbody>
+      <tr><td>Run ID</td><td class="mono">{{ lineage.run_id }}</td></tr>
+      <tr><td>Period</td><td>{{ lineage.period_start }} - {{ lineage.period_end }}</td></tr>
+      <tr><td>Generated at</td><td>{{ lineage.generated_at }}</td></tr>
+      <tr><td>Pipeline duration</td><td class="mono">{{ lineage.pipeline_duration_seconds }}s</td></tr>
+    </tbody>
+  </table>
+
+  <ul class="lineage-sources">
+    {% for source in lineage.sources %}
+    <li><strong>{{ source.name }}</strong> - {{ source.url }} - {{ source.note }}</li>
+    {% endfor %}
+  </ul>
+</section>

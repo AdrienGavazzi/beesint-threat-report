@@ -105,6 +105,26 @@ class UrlhausEntry(BaseModel):
         return _to_utc(value)
 
 
+class ThreatFoxIoc(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    ioc_id: str
+    ioc_type: str  # valeurs API réelles ("ip:port", "domain", "md5_hash", "sha256_hash", "url", ...)
+    ioc_value: str
+    threat_type: str
+    malware: str
+    malware_printable: str
+    confidence_level: int
+    first_seen: datetime
+    last_seen: datetime | None = None
+    reporter: str
+    tags: list[str] = []
+
+    @field_validator("first_seen", "last_seen")
+    @classmethod
+    def _force_utc(cls, value: datetime | None) -> datetime | None:
+        return _to_utc(value) if value is not None else None
+
+
 def validate_batch(
     raw_items: list[dict], model: type[BaseModel], source: str, run_id: str
 ) -> tuple[list[BaseModel], list[dict]]:

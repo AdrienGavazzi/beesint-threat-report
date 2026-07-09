@@ -1,0 +1,50 @@
+<section class="section">
+  <h2 class="section-title">CISA KEV Additions</h2>
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="value">{{ kev.new_count }}</div>
+      <div class="label">New KEV entries</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">
+        {% if kev.urgency_flag %}
+          <span class="badge badge-error">Ransomware activity</span>
+        {% else %}
+          <span class="badge badge-neutral">No ransomware flag</span>
+        {% endif %}
+      </div>
+      <div class="label">Urgency</div>
+    </div>
+  </div>
+
+  {% if kev['items'] %}
+  <table>
+    <thead>
+      <tr>
+        <th class="mono">CVE</th>
+        <th>Vendor / Project</th>
+        <th>Product</th>
+        <th>Added</th>
+        <th>Ransomware</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in kev['items'] %}
+      <tr>
+        <td class="mono">{{ item.cve_id }}</td>
+        <td>{{ item.vendor_project if item.vendor_project else "N/A" }}</td>
+        <td>{{ item.product if item.product else "N/A" }}</td>
+        <td>{{ item.date_added }}</td>
+        <td>
+          {% if item.ransomware_known_use %}
+            <span class="badge badge-error">Known</span>
+          {% else %}
+            <span class="badge badge-neutral">Unknown</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
