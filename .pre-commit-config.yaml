@@ -1,0 +1,47 @@
+repos:
+  # ── Checks généraux ──────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: check-yaml
+      # check-toml excluded: replaced by local hook below (Windows SAC blocks isolated envs)
+      - id: check-json
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  # ── Détection de secrets / tokens leakés ────────────────────────
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  # ── Linting + formatage Python (remplace black + isort + flake8) ─
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.11.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # ── Validation TOML via Python système (contournement Windows SAC) ──
+  - repo: local
+    hooks:
+      - id: detect-private-key-local
+        name: detect private key
+        language: system
+        entry: >-
+          python -c "import pathlib,re,sys; pattern=re.compile(r'-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'); sys.exit(1 if any(pattern.search(pathlib.Path(filename).read_text(encoding='utf-8', errors='ignore')) for filename in sys.argv[1:]) else 0)"
+        files: .*
+        pass_filenames: true
+
+      - id: check-toml-local
+        name: check toml syntax
+        language: system
+        entry: python -c "import sys, tomllib; [tomllib.load(open(f,'rb')) for f in sys.argv[1:]]"
+        files: \.toml$
+        pass_filenames: true
+
+  # pip-audit tourne en CI (non-bloquant) — pas en hook local (incompatible Windows)

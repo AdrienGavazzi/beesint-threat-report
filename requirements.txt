@@ -1,0 +1,10 @@
+polars==1.17.1
+pydantic==2.10.3
+pydantic-settings==2.14.1
+pandera[polars]==0.20.4
+s3fs==2024.10.0
+tenacity==9.0.0
+httpx==0.28.1
+python-dotenv==1.0.1
+python-json-logger==3.3.0
+sentry-sdk==2.19.2

@@ -1,0 +1,5 @@
+-r requirements.txt
+pre-commit>=3.7.0
+pytest>=8.2.0
+pytest-httpx>=0.30.0
+ruff==0.11.0

@@ -1,0 +1,34 @@
+# Secrets — NE JAMAIS COMMITER
+.env
+
+# Virtualenv Python
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.ruff_cache/
+.pytest_cache/
+
+# Cache local ETL (dev)
+.cache/
+
+# Distribution / build
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
