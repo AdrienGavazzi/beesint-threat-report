@@ -21,6 +21,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
+          pip install -e .
 
       - name: Lint (ruff)
         run: ruff check src/ tests/
@@ -48,6 +49,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
+          pip install -e .
 
       - name: Tests (pytest, network isolated)
         run: pytest --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1
