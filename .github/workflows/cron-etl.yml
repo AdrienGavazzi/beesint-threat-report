@@ -26,15 +26,18 @@ jobs:
       ORACLE_S3_ENDPOINT: ${{ secrets.ORACLE_S3_ENDPOINT }}
       ORACLE_S3_BUCKET: ${{ secrets.ORACLE_S3_BUCKET }}
       THREAT_REPORT_INTERNAL_SECRET: ${{ secrets.THREAT_REPORT_INTERNAL_SECRET }}
+      BACKEND_WEBHOOK_URL: ${{ secrets.BACKEND_WEBHOOK_URL }}
       SENTRY_DSN_THREAT_REPORT: ${{ secrets.SENTRY_DSN_THREAT_REPORT }}
       THREATFOX_AUTH_KEY: ${{ secrets.THREATFOX_AUTH_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
 
       - name: Install WeasyPrint system dependencies
         run: |

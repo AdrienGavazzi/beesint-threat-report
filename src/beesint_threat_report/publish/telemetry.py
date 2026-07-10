@@ -22,6 +22,7 @@ def log_run_summary(run_id: str, duration_seconds: float, sources_status: dict[s
 
 
 def sentry_breadcrumb_run_step(step: str, status: str, details: dict | None = None) -> None:
+    logger.info("%s: %s", step, status)
     try:
         import sentry_sdk
 
