@@ -593,7 +593,7 @@ async def run(force_refresh: bool = False) -> dict:
             webhook_status = await publish_status(
                 client, settings.backend_webhook_url, settings.threat_report_internal_secret, run_entry
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("publish_webhook: échec inattendu, run non bloqué")
             try:
                 import sentry_sdk
@@ -601,7 +601,9 @@ async def run(force_refresh: bool = False) -> dict:
                 sentry_sdk.capture_exception()
             except Exception:
                 pass
-            webhook_status = "failed"
+            # Nom d'exception (ex. "failed:InvalidURL") plutôt que "failed" générique — seul
+            # indice diagnosticable sans accès aux logs GitHub Actions/Sentry.
+            webhook_status = f"failed:{type(exc).__name__}"
         sentry_breadcrumb_run_step("publish_webhook", webhook_status)
         _annotate_webhook_status(run_id, webhook_status, base_path, storage_options)
 

@@ -57,4 +57,8 @@ async def publish_status(
             sentry_sdk.capture_exception(exc)
         except Exception:
             pass
-        return "failed"
+        # Détail diagnosticable depuis runs/index.json seul (pas de logs GH Actions/Sentry
+        # nécessaires) : code HTTP pour un rejet serveur, nom d'exception pour un échec réseau.
+        if isinstance(exc, httpx.HTTPStatusError):
+            return f"failed:{exc.response.status_code}"
+        return f"failed:{type(exc).__name__}"

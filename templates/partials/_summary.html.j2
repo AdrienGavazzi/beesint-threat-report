@@ -31,4 +31,18 @@
       <div class="label">Malicious URLs</div>
     </div>
   </div>
+
+  {% if history_chart.svg %}
+  <div class="chart-row">
+    <div class="chart-card" style="flex-basis: 100%;">
+      <p class="chart-card-title">Critical CVEs, KEV additions &amp; active C2 — run history</p>
+      {{ history_chart.svg | safe }}
+      <div class="chart-legend">
+        {% for entry in history_chart.legend %}
+        <span class="chart-legend-item"><span class="chart-legend-dot" style="background:{{ entry.color }}"></span>{{ entry.label }}</span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
 </section>

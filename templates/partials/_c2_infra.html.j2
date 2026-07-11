@@ -21,6 +21,12 @@
     </div>
   </div>
 
+  {% if c2.map_svg %}
+  <div class="map-frame">
+    {{ c2.map_svg | safe }}
+  </div>
+  {% endif %}
+
   {% if c2['items'] %}
   <table>
     <thead>

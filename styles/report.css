@@ -76,6 +76,11 @@
 @page {
   size: A4;
   margin: 2.2cm 1.8cm 2.6cm 1.8cm;
+  /* Le fond de la zone de marge (hors body) reste blanc par défaut chez WeasyPrint tant qu'il
+     n'est pas explicitement posé sur @page lui-même — body{background} seul ne couvre que la
+     zone de contenu, pas les marges. Sans cette ligne, chaque page affiche un cadre blanc
+     autour du contenu sombre. */
+  background: var(--color-bg-base);
 
   @bottom-left {
     content: "Data kindly provided by abuse.ch";
@@ -392,6 +397,58 @@ tbody tr:nth-child(even) {
 
 .col-count {
   text-align: right;
+}
+
+/* Cartes de charts (donut, histogramme, line chart, carte) — même mécanique flexbox que
+   .kpi-grid ci-dessus (pas de repeat(auto-fit,...), non supporté par WeasyPrint). */
+.chart-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 10px;
+}
+.chart-card {
+  flex: 1 1 200px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  padding: 12px 14px;
+}
+.chart-card-title {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+.chart-legend {
+  font-size: 0; /* neutralise l'espace blanc entre inline-block adjacents, même pattern que .chip-list */
+  margin-top: 8px;
+}
+.chart-legend-item {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  margin: 0 10px 4px 0;
+}
+.chart-legend-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.map-frame {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-bg-elevated);
+  margin-top: 10px;
+  padding: 10px;
 }
 
 .lineage-sources {

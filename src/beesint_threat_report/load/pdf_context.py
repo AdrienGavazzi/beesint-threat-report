@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime
 
 import polars as pl
@@ -48,6 +49,24 @@ _SOURCES = [
 _SPARKLINE_COLOR = "#38BDF8"  # --color-primary-light — visible sur fond sombre à petite taille
 _DEGRADED_STATUS_PREFIXES = ("failed",)
 
+# Couleurs SVG hardcodées (copiées des tokens report.css) plutôt que var(--...) : ces chaînes
+# sont générées en Python pur, hors du pipeline CSS, même choix que _SPARKLINE_COLOR ci-dessus.
+_TEXT_BODY_COLOR = "#E2E8F0"
+_TEXT_MUTED_COLOR = "#6B849E"
+_GRID_COLOR = "#2A2D3A"  # --color-border
+_MAP_DOT_COLOR = "#F59E0B"  # --color-accent-gold
+_DONUT_CRITICAL_COLOR = "#EF4444"  # --color-error
+_DONUT_HIGH_COLOR = "#F59E0B"  # --color-warning
+_HISTOGRAM_COLOR = "#0EA5E9"  # --color-primary
+_HISTOGRAM_MIN_ITEMS = 6  # sous ce seuil, un histogramme par bin serait aussi peu lisible que
+# les bar-charts count=1 déjà bannis ailleurs (vendors/CWE) — cf. philosophie du fichier.
+# Palette catégorielle fixe pour le line chart CVE/KEV/C2 (3 séries, un seul axe partagé —
+# les 3 KPI sont des comptages de même ordre de grandeur, contrairement à malicious_url_count
+# qui reste sur son propre sparkline). Violet choisi pour C2 : ni error ni warning, pour ne pas
+# entrer en collision avec la sémantique "statut" déjà portée par ces deux couleurs ailleurs.
+_LINE_SERIES_COLORS = {"cve": "#0EA5E9", "kev": "#F59E0B", "c2": "#A78BFA"}
+_LINE_MIN_POINTS = 2
+
 
 def _fmt_date(value: datetime) -> str:
     return value.strftime("%d %B %Y")
@@ -69,6 +88,160 @@ def _build_sparkline_svg(
         f'<polyline points="{points}" fill="none" stroke="{color}" stroke-width="1.5" '
         f'stroke-linecap="round" stroke-linejoin="round"/></svg>'
     )
+
+
+def _build_world_map_svg(items: list[dict], width: int = 480, height: int = 220) -> str | None:
+    """Scatter équirectangulaire pur SVG (pas de tuiles/basemap : aucun appel réseau depuis le
+    rendu PDF, cf. philosophie "continue en dégradé" — un run ETL ne doit jamais dépendre de la
+    disponibilité d'un service tiers juste pour dessiner une carte)."""
+    points = [
+        (item["lon"], item["lat"]) for item in items if item.get("lat") is not None and item.get("lon") is not None
+    ]
+    if not points:
+        return None
+
+    def _project(lon: float, lat: float) -> tuple[float, float]:
+        return (lon + 180) / 360 * width, (90 - lat) / 180 * height
+
+    graticule = []
+    for lon in range(-180, 181, 30):
+        x, _ = _project(lon, 0)
+        graticule.append(
+            f'<line x1="{x:.1f}" y1="0" x2="{x:.1f}" y2="{height}" stroke="{_GRID_COLOR}" stroke-width="0.5"/>'
+        )
+    for lat in range(-60, 91, 30):
+        _, y = _project(0, lat)
+        graticule.append(
+            f'<line x1="0" y1="{y:.1f}" x2="{width}" y2="{y:.1f}" stroke="{_GRID_COLOR}" stroke-width="0.5"/>'
+        )
+
+    dots = []
+    for lon, lat in points:
+        x, y = _project(lon, lat)
+        dots.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{_MAP_DOT_COLOR}" fill-opacity="0.9" '
+            f'stroke="{_MAP_DOT_COLOR}" stroke-opacity="0.25" stroke-width="5"/>'
+        )
+
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="world-map">'
+        f'<rect x="0" y="0" width="{width}" height="{height}" fill="none" stroke="{_GRID_COLOR}" stroke-width="1"/>'
+        + "".join(graticule)
+        + "".join(dots)
+        + "</svg>"
+    )
+
+
+def _build_severity_donut_svg(critical_count: int, high_count: int, size: int = 130, stroke: int = 16) -> str | None:
+    total = critical_count + high_count
+    if total <= 0:
+        return None
+    radius = (size - stroke) / 2
+    circumference = 2 * math.pi * radius
+    critical_len = circumference * (critical_count / total)
+    cx = cy = size / 2
+
+    segments = (
+        f'<circle cx="{cx}" cy="{cy}" r="{radius}" fill="none" stroke="{_DONUT_CRITICAL_COLOR}" '
+        f'stroke-width="{stroke}" stroke-dasharray="{critical_len:.1f} {circumference:.1f}" '
+        f'transform="rotate(-90 {cx} {cy})"/>'
+    )
+    if high_count > 0:
+        high_len = circumference - critical_len
+        segments += (
+            f'<circle cx="{cx}" cy="{cy}" r="{radius}" fill="none" stroke="{_DONUT_HIGH_COLOR}" '
+            f'stroke-width="{stroke}" stroke-dasharray="{high_len:.1f} {circumference:.1f}" '
+            f'stroke-dashoffset="-{critical_len:.1f}" transform="rotate(-90 {cx} {cy})"/>'
+        )
+
+    return (
+        f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" class="severity-donut">'
+        f"{segments}"
+        f'<text x="{cx}" y="{cy - 3}" text-anchor="middle" fill="{_TEXT_BODY_COLOR}" '
+        f'font-family="JetBrains Mono, monospace" font-size="22" font-weight="700">{total}</text>'
+        f'<text x="{cx}" y="{cy + 15}" text-anchor="middle" fill="{_TEXT_MUTED_COLOR}" '
+        f'font-family="JetBrains Mono, monospace" font-size="8" letter-spacing="1">CVEs</text>'
+        f"</svg>"
+    )
+
+
+def _build_cvss_histogram_svg(
+    critical_items: list[dict], width: int = 280, height: int = 110, bins: int = 4
+) -> str | None:
+    """Distribution des scores CVSS des CVE critiques de la semaine — uniquement sur des scores
+    réels (pas de fabrication de données). Sous _HISTOGRAM_MIN_ITEMS, retourne None plutôt que de
+    reproduire le problème "bar-chart sur des counts de 1" déjà corrigé ailleurs (vendors/CWE)."""
+    scores = [item["cvss_score"] for item in critical_items if item.get("cvss_score") is not None]
+    if len(scores) < _HISTOGRAM_MIN_ITEMS:
+        return None
+
+    lo, hi = min(scores), max(scores)
+    span = (hi - lo) or 1
+    bin_width = span / bins
+    counts = [0] * bins
+    for s in scores:
+        idx = min(int((s - lo) / bin_width), bins - 1)
+        counts[idx] += 1
+    max_count = max(counts) or 1
+
+    top_margin, bottom_margin = 14, 24
+    plot_height = height - top_margin - bottom_margin
+    baseline_y = height - bottom_margin
+    bar_width = width / bins
+    gap = 6
+
+    bars = []
+    for i, c in enumerate(counts):
+        bar_h = (c / max_count) * plot_height
+        x = i * bar_width + gap / 2
+        y = baseline_y - bar_h
+        bar_w = bar_width - gap
+        bars.append(
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{max(bar_h, 1):.1f}" rx="3" fill="{_HISTOGRAM_COLOR}"/>'
+        )
+        bars.append(
+            f'<text x="{x + bar_w / 2:.1f}" y="{y - 4:.1f}" text-anchor="middle" fill="{_TEXT_BODY_COLOR}" '
+            f'font-family="JetBrains Mono, monospace" font-size="9">{c}</text>'
+        )
+        label = f"{lo + i * bin_width:.1f}-{lo + (i + 1) * bin_width:.1f}"
+        bars.append(
+            f'<text x="{x + bar_w / 2:.1f}" y="{height - 6}" text-anchor="middle" fill="{_TEXT_MUTED_COLOR}" '
+            f'font-family="JetBrains Mono, monospace" font-size="8">{label}</text>'
+        )
+
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="cvss-histogram">'
+        + "".join(bars)
+        + "</svg>"
+    )
+
+
+def _build_history_line_chart_svg(
+    cve_series: list[float], kev_series: list[float], c2_series: list[float], width: int = 320, height: int = 110
+) -> str | None:
+    series = {"cve": cve_series, "kev": kev_series, "c2": c2_series}
+    lengths = {len(v) for v in series.values()}
+    if len(lengths) != 1 or lengths == {0}:
+        return None
+    n = next(iter(lengths))
+    if n < _LINE_MIN_POINTS:
+        return None
+
+    all_values = [v for values in series.values() for v in values]
+    lo, hi = min(all_values), max(all_values)
+    span = (hi - lo) or 1
+    margin = 6
+    plot_h = height - margin * 2
+    step = width / (n - 1)
+
+    def _polyline(values: list[float], color: str) -> str:
+        points = " ".join(
+            f"{i * step:.1f},{margin + plot_h - ((v - lo) / span * plot_h):.1f}" for i, v in enumerate(values)
+        )
+        return f'<polyline points="{points}" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+
+    lines = "".join(_polyline(values, _LINE_SERIES_COLORS[key]) for key, values in series.items())
+    return f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="history-line-chart">{lines}</svg>'
 
 
 def _build_executive_summary(kpis: ReportKpis, is_cold_start: bool, sources_status: dict[str, str]) -> str:
@@ -179,6 +352,8 @@ def build_c2_items(top_ips: list[dict]) -> list[dict]:
             "malware_family": item.get("malware"),
             "first_seen": item.get("first_seen"),
             "last_online": item.get("last_seen"),
+            "lat": item.get("lat"),
+            "lon": item.get("lon"),
         }
         for item in top_ips
     ]
@@ -256,6 +431,8 @@ def build_pdf_context(
             "high_volume_count": kpis.cve_high_count,
             "critical_items": critical_items,
             "sparkline": _build_sparkline_svg(_series("cve_critical_count", kpis.cve_critical_count)),
+            "severity_donut": _build_severity_donut_svg(kpis.cve_critical_count, kpis.cve_high_count),
+            "cvss_histogram": _build_cvss_histogram_svg(critical_items),
         },
         "kev": {
             "new_count": kpis.kev_new_count,
@@ -275,6 +452,7 @@ def build_pdf_context(
             "trend_pct": kpis.c2_active_trend_pct,
             "items": c2_items,
             "sparkline": _build_sparkline_svg(_series("c2_active_count", kpis.c2_active_count)),
+            "map_svg": _build_world_map_svg(c2_items),
         },
         "malicious_urls": {
             "online_count": kpis.malicious_url_count,
@@ -289,6 +467,18 @@ def build_pdf_context(
         },
         "geo": {
             "top_countries": _geo_top_countries(feodo_df, _TOP_N_COUNTRIES),
+        },
+        "history_chart": {
+            "svg": _build_history_line_chart_svg(
+                _series("cve_critical_count", kpis.cve_critical_count),
+                _series("kev_new_count", kpis.kev_new_count),
+                _series("c2_active_count", kpis.c2_active_count),
+            ),
+            "legend": [
+                {"label": "Critical CVEs", "color": _LINE_SERIES_COLORS["cve"]},
+                {"label": "New KEV entries", "color": _LINE_SERIES_COLORS["kev"]},
+                {"label": "Active C2 IPs", "color": _LINE_SERIES_COLORS["c2"]},
+            ],
         },
         "vendors": {
             "top_items": [{"vendor_name": row["vendor"], "cve_count": row["count"]} for row in kpis.top_vendors],

@@ -32,4 +32,4 @@ async def test_publish_status_failed_after_persistent_500_never_raises():
         mock.post(WEBHOOK_URL).mock(return_value=httpx.Response(500))
         async with httpx.AsyncClient() as client:
             status = await publish_status(client, WEBHOOK_URL, "secret", {"run_id": "r1"})
-    assert status == "failed"
+    assert status == "failed:500"

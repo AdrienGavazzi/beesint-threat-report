@@ -71,6 +71,8 @@ def minimal_context() -> dict:
                 }
             ],
             "sparkline": None,
+            "severity_donut": None,
+            "cvss_histogram": None,
         },
         "kev": {
             "new_count": 1,
@@ -103,6 +105,7 @@ def minimal_context() -> dict:
                 }
             ],
             "sparkline": None,
+            "map_svg": None,
         },
         "malicious_urls": {
             "online_count": 2,
@@ -124,6 +127,7 @@ def minimal_context() -> dict:
                 {"country_name": "Germany", "country_code": "DE", "count": 2, "pct_of_total": 40.0},
             ]
         },
+        "history_chart": {"svg": None, "legend": []},
         "vendors": {"top_items": [{"vendor_name": "acme", "cve_count": 2}]},
         "cwe": {
             "top_items": [{"cwe_id": "CWE-79", "cwe_name": "Cross-Site Scripting", "count": 2, "pct_of_total": 100.0}]

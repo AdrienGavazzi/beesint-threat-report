@@ -25,6 +25,27 @@
     </div>
   </div>
 
+  {% if cve.severity_donut or cve.cvss_histogram %}
+  <div class="chart-row">
+    {% if cve.severity_donut %}
+    <div class="chart-card">
+      <p class="chart-card-title">Severity split</p>
+      {{ cve.severity_donut | safe }}
+      <div class="chart-legend">
+        <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#EF4444"></span>Critical ({{ cve.critical_count }})</span>
+        <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#F59E0B"></span>High ({{ cve.high_volume_count }})</span>
+      </div>
+    </div>
+    {% endif %}
+    {% if cve.cvss_histogram %}
+    <div class="chart-card">
+      <p class="chart-card-title">CVSS score distribution (critical CVEs)</p>
+      {{ cve.cvss_histogram | safe }}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
   {% if cve.critical_items %}
   <table>
     <thead>
