@@ -1,0 +1,24 @@
+{% if threatfox.enabled %}
+<section class="section">
+  <h2 class="section-title">ThreatFox Malware Families</h2>
+  <p class="section-desc">Distinct malware families seen across tracked indicators this week — a rising count signals a more diverse threat landscape, not necessarily a worse one.</p>
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="value">{{ threatfox.families_count }}</div>
+      <div class="label">Malware families tracked</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">
+        {% if threatfox.families_trend_pct is none %}
+          N/A
+        {% elif threatfox.families_trend_pct >= 0 %}
+          <span class="trend-up">+{{ threatfox.families_trend_pct }}%</span>
+        {% else %}
+          <span class="trend-down">{{ threatfox.families_trend_pct }}%</span>
+        {% endif %}
+      </div>
+      <div class="label">Trend vs previous run</div>
+    </div>
+  </div>
+</section>
+{% endif %}

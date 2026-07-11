@@ -20,6 +20,8 @@ pytestmark = pytest.mark.skipif(
 
 _SECTION_TITLES = [
     "BeeSINT Threat Report",
+    "Executive Summary",
+    "Source Status",
     "Contents",
     "New Critical CVEs",
     "CISA KEV Additions",
@@ -47,6 +49,14 @@ def minimal_context() -> dict:
                 "malicious_url_count": 2,
             },
         },
+        "executive_summary": "This week, the pipeline tracked 2 new critical CVEs. "
+        "1 was added to CISA's Known Exploited Vulnerabilities catalog, including at least "
+        "one tied to known ransomware activity. 1 command-and-control server(s) remain "
+        "active and 2 malicious URLs were seen online in the monitored feeds.",
+        "sources_status": [
+            {"name": "kev", "status": "ok"},
+            {"name": "nvd", "status": "ok"},
+        ],
         "cve": {
             "critical_count": 2,
             "critical_trend_pct": 12.5,
@@ -60,9 +70,12 @@ def minimal_context() -> dict:
                     "vendor": "acme",
                 }
             ],
+            "sparkline": None,
         },
         "kev": {
             "new_count": 1,
+            "trend_pct": None,
+            "urgent_count": 0,
             "items": [
                 {
                     "cve_id": "CVE-2026-1",
@@ -73,10 +86,12 @@ def minimal_context() -> dict:
                 }
             ],
             "urgency_flag": True,
+            "sparkline": None,
         },
         "mttk": {"average_days": 4.5, "median_days": 3.0, "sample_size": 1},
         "c2": {
             "active_count": 1,
+            "trend_pct": None,
             "items": [
                 {
                     "ip_address": "203.0.113.10",
@@ -87,9 +102,11 @@ def minimal_context() -> dict:
                     "last_online": "2026-06-05",
                 }
             ],
+            "sparkline": None,
         },
         "malicious_urls": {
             "online_count": 2,
+            "trend_pct": None,
             "items": [
                 {
                     "url": "http://malicious.example.com/payload",
@@ -98,7 +115,9 @@ def minimal_context() -> dict:
                     "date_added": "2026-06-04",
                 }
             ],
+            "sparkline": None,
         },
+        "threatfox": {"enabled": False, "families_count": 0, "families_trend_pct": None},
         "geo": {
             "top_countries": [
                 {"country_name": "United States", "country_code": "US", "count": 3, "pct_of_total": 60.0},

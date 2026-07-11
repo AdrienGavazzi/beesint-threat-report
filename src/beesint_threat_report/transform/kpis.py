@@ -25,6 +25,9 @@ class ReportKpis:
     cwe_distribution: list[dict]  # [{cwe_id, count}]
     threatfox_malware_families_count: int = 0  # familles distinctes sur IOC domaine/hash (lot 7)
     threatfox_malware_families_trend_pct: float | None = None
+    kev_new_trend_pct: float | None = None
+    c2_active_trend_pct: float | None = None
+    malicious_url_trend_pct: float | None = None
 
 
 def _trend_pct(current: int, previous: int | None) -> float | None:
@@ -117,4 +120,9 @@ def compute_kpis(
         cwe_distribution=cwe_distribution,
         threatfox_malware_families_count=threatfox_malware_families_count,
         threatfox_malware_families_trend_pct=threatfox_malware_families_trend_pct,
+        kev_new_trend_pct=_trend_pct(kev_new_count, previous_kpis.kev_new_count if previous_kpis else None),
+        c2_active_trend_pct=_trend_pct(c2_active_count, previous_kpis.c2_active_count if previous_kpis else None),
+        malicious_url_trend_pct=_trend_pct(
+            malicious_url_count, previous_kpis.malicious_url_count if previous_kpis else None
+        ),
     )

@@ -1,5 +1,7 @@
 <section class="section">
   <h2 class="section-title">Mean-Time-to-KEV</h2>
+  <p class="section-desc">Average days between a vulnerability's public disclosure and its confirmed active exploitation — shorter means less warning time for defenders.</p>
+  {% if mttk.sample_size > 0 %}
   <div class="kpi-grid">
     <div class="kpi-card">
       <div class="value">{{ mttk.average_days if mttk.average_days is not none else "N/A" }}</div>
@@ -14,4 +16,7 @@
       <div class="label">Sample size</div>
     </div>
   </div>
+  {% else %}
+  <p class="section-desc" style="font-style: italic;">Not enough data yet — no CVE this run was both newly critical and newly added to CISA's KEV list with a matching disclosure date to measure lag against.</p>
+  {% endif %}
 </section>

@@ -1,9 +1,23 @@
 <section class="section">
   <h2 class="section-title">Malicious URLs Online</h2>
+  <p class="section-desc">Live links currently hosting malware or phishing pages — still reachable by a victim clicking today.</p>
   <div class="kpi-grid">
     <div class="kpi-card">
       <div class="value">{{ malicious_urls.online_count }}</div>
       <div class="label">Online now</div>
+      {% if malicious_urls.sparkline %}<div class="kpi-spark">{{ malicious_urls.sparkline | safe }}</div>{% endif %}
+    </div>
+    <div class="kpi-card">
+      <div class="value">
+        {% if malicious_urls.trend_pct is none %}
+          N/A
+        {% elif malicious_urls.trend_pct >= 0 %}
+          <span class="trend-up">+{{ malicious_urls.trend_pct }}%</span>
+        {% else %}
+          <span class="trend-down">{{ malicious_urls.trend_pct }}%</span>
+        {% endif %}
+      </div>
+      <div class="label">Trend vs previous run</div>
     </div>
   </div>
 

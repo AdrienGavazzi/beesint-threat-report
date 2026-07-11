@@ -1,16 +1,22 @@
 <section class="section">
   <h2 class="section-title">CWE Breakdown</h2>
+  <p class="section-desc">The underlying flaw categories (Common Weakness Enumeration) behind this week's critical CVEs — the "type of bug", not the specific product.</p>
   {% if cwe.top_items %}
-  <div>
-    {% for item in cwe.top_items %}
-    <div class="bar-row">
-      <div class="bar-label">{{ item.cwe_id }} - {{ item.cwe_name }}</div>
-      <div class="bar-track">
-        <div class="bar-fill" style="width: {{ item.pct_of_total }}%"></div>
-      </div>
-      <div class="bar-count">{{ item.count }}</div>
-    </div>
-    {% endfor %}
-  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>CWE</th>
+        <th class="col-count">Count</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in cwe.top_items %}
+      <tr>
+        <td>{{ item.cwe_id }} - {{ item.cwe_name }}</td>
+        <td class="mono col-count">{{ item.count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% endif %}
 </section>

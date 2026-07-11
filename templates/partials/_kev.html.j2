@@ -1,9 +1,27 @@
 <section class="section">
   <h2 class="section-title">CISA KEV Additions</h2>
+  <p class="section-desc">Vulnerabilities CISA has confirmed are being actively exploited in the wild — the highest-priority patching list that exists.</p>
   <div class="kpi-grid">
     <div class="kpi-card">
       <div class="value">{{ kev.new_count }}</div>
       <div class="label">New KEV entries</div>
+      {% if kev.sparkline %}<div class="kpi-spark">{{ kev.sparkline | safe }}</div>{% endif %}
+    </div>
+    <div class="kpi-card">
+      <div class="value">
+        {% if kev.trend_pct is none %}
+          N/A
+        {% elif kev.trend_pct >= 0 %}
+          <span class="trend-up">+{{ kev.trend_pct }}%</span>
+        {% else %}
+          <span class="trend-down">{{ kev.trend_pct }}%</span>
+        {% endif %}
+      </div>
+      <div class="label">Trend vs previous run</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ kev.urgent_count }}</div>
+      <div class="label">Due within 7 days</div>
     </div>
     <div class="kpi-card">
       <div class="value">

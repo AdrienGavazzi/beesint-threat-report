@@ -504,6 +504,14 @@ async def run(force_refresh: bool = False) -> dict:
         try:
             local_pdf_path = Path(settings.local_data_dir) / f".tmp-pdf-{run_id}.pdf"
             local_pdf_path.parent.mkdir(parents=True, exist_ok=True)
+            # Historique pour les sparklines PDF — lecture read-only de runs/index.json avant
+            # append (finalize_manifest_and_index() lit/écrit ce même fichier plus loin dans le
+            # run, aucun conflit d'ordre puisque cette lecture ne fait qu'ajouter le point courant
+            # en mémoire, jamais d'écriture ici).
+            history_entries = sorted(
+                _read_json(base_path, storage_options, "runs/index.json") or [],
+                key=lambda r: r.get("period_end", ""),
+            )[-7:]
             pdf_context = build_pdf_context(
                 run_id=run_id,
                 period_start=period_start,
@@ -518,6 +526,9 @@ async def run(force_refresh: bool = False) -> dict:
                 c2_items=c2_items,
                 malicious_url_items=malicious_url_items,
                 pipeline_duration_seconds=pipeline_duration_seconds,
+                sources_status=sources_status,
+                is_cold_start=is_cold_start,
+                history_entries=history_entries,
             )
             render_pdf(pdf_context, local_pdf_path)
 
@@ -574,14 +585,47 @@ async def run(force_refresh: bool = False) -> dict:
             storage_options=storage_options,
         )
 
-        webhook_status = await publish_status(
-            client, settings.backend_webhook_url, settings.threat_report_internal_secret, run_entry
-        )
+        # publish_status() est le seul appel du pipeline sans try/except propre — une URL de
+        # webhook malformée (ex. httpx.InvalidURL, ni TransportError ni HTTPStatusError) sortait
+        # non catchée de cette fonction et faisait planter tout le run. Le webhook est une
+        # notification best-effort, jamais un point de blocage (CDC §4 "continue en dégradé").
+        try:
+            webhook_status = await publish_status(
+                client, settings.backend_webhook_url, settings.threat_report_internal_secret, run_entry
+            )
+        except Exception:
+            logger.exception("publish_webhook: échec inattendu, run non bloqué")
+            try:
+                import sentry_sdk
+
+                sentry_sdk.capture_exception()
+            except Exception:
+                pass
+            webhook_status = "failed"
         sentry_breadcrumb_run_step("publish_webhook", webhook_status)
+        _annotate_webhook_status(run_id, webhook_status, base_path, storage_options)
 
         log_run_summary(run_id, pipeline_duration_seconds, sources_status, report_kpis)
 
     return payload
+
+
+def _annotate_webhook_status(run_id: str, webhook_status: str, base_path: str, storage_options: dict | None) -> None:
+    """Patch runs/index.json a posteriori avec le résultat du webhook — finalize_manifest_and_index()
+    doit s'exécuter avant publish_status() (le payload webhook est run_entry lui-même), donc ce
+    statut ne peut être connu qu'après coup. Avant ce patch, un échec de webhook n'était visible
+    nulle part (ni runs/index.json, ni manifest.json) — seulement dans un log brut ou une breadcrumb
+    Sentry, tous deux inaccessibles sans logs GitHub Actions/Sentry. Best-effort : une erreur ici ne
+    doit jamais faire échouer le run (le statut est déjà loggé/Sentry par ailleurs)."""
+    try:
+        index = _read_json(base_path, storage_options, "runs/index.json") or []
+        for entry in index:
+            if entry.get("run_id") == run_id:
+                entry["webhook_status"] = webhook_status
+                break
+        _write_json(base_path, storage_options, "runs/index.json", index)
+    except Exception:
+        logger.exception("annotate: échec écriture webhook_status dans runs/index.json")
 
 
 def _override_force_refresh(settings: Settings, force_refresh: bool) -> Settings:
@@ -593,21 +637,22 @@ def _override_force_refresh(settings: Settings, force_refresh: bool) -> Settings
 
 
 def _kpis_from_manifest(manifest: dict | None):
-    """Reconstruit un ReportKpis minimal depuis manifest.json — seuls cve_critical_count et
-    threatfox_malware_families_count sont réellement consommés en aval (compute_kpis ne
-    calcule de trend que sur ces champs), les autres champs sont des placeholders neutres."""
+    """Reconstruit un ReportKpis minimal depuis manifest.json — seuls cve_critical_count,
+    kev_new_count, c2_active_count, malicious_url_count et threatfox_malware_families_count
+    sont réellement consommés en aval (compute_kpis ne calcule de trend que sur ces champs),
+    les autres champs sont des placeholders neutres."""
     if manifest is None:
         return None
     return kpis_module.ReportKpis(
         cve_critical_count=manifest.get("cve_critical_count", 0),
         cve_critical_trend_pct=None,
         cve_high_count=0,
-        kev_new_count=0,
+        kev_new_count=manifest.get("kev_new_count", 0),
         kev_urgent_count=0,
         kev_ransomware_count=0,
         mean_time_to_kev_days=None,
-        c2_active_count=0,
-        malicious_url_count=0,
+        c2_active_count=manifest.get("c2_active_count", 0),
+        malicious_url_count=manifest.get("malicious_url_count", 0),
         top_countries=[],
         top_vendors=[],
         cwe_distribution=[],

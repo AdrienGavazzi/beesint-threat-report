@@ -1,8 +1,8 @@
 /* BeeSINT Threat Report — feuille de style unique du PDF.
-   Tokens copiés de beesint-frontend/design-system.md (Lot 5, à resynchroniser manuellement
-   si la DA change côté frontend — les deux repos sont indépendants, CDC §1).
-   Fond clair pour l'impression (pas le thème dark de l'app) : seuls bg/texte de base
-   s'inversent, les couleurs d'accent restent identiques à l'app. */
+   Tokens copiés 1:1 de beesint-frontend/src/index.css (thème dark "Intelligence Platform" —
+   à resynchroniser manuellement si la DA change côté frontend, les deux repos sont
+   indépendants, CDC §1). Le PDF partage désormais exactement la même identité visuelle que
+   l'app (fond sombre, Electric Blue, accent gold) plutôt qu'un thème clair "datasheet" séparé. */
 
 @font-face {
   font-family: "Syne";
@@ -41,22 +41,22 @@
 }
 
 :root {
-  --color-bg-base: #FFFFFF;
-  --color-bg-surface: #F7F9FC;
-  --color-bg-elevated: #EEF2F7;
-  --color-border: #D6DEE8;
-  --color-border-subtle: #E6EBF2;
+  --color-bg-base: #090A0F;
+  --color-bg-surface: #12141C;
+  --color-bg-elevated: #1a1f2e;
+  --color-border: #2A2D3A;
+  --color-border-subtle: #0F1520;
   --color-primary: #0EA5E9;
   --color-primary-light: #38BDF8;
   --color-primary-dark: #0284C7;
   --color-accent-gold: #F59E0B;
-  --color-text-body: #101826;
-  --color-text-muted: #5C6B80;
-  --color-text-mono: #0284C7;
+  --color-text-body: #E2E8F0;
+  --color-text-muted: #6B849E;
+  --color-text-mono: #38BDF8;
   --color-success: #22C55E;
   --color-warning: #F59E0B;
   --color-error: #EF4444;
-  --color-on-primary: #070A10;
+  --color-on-primary: #090A0F;
 
   --font-display: "Syne", sans-serif;
   --font-sans: "Plus Jakarta Sans", sans-serif;
@@ -101,6 +101,10 @@
   box-sizing: border-box;
 }
 
+html {
+  background: var(--color-bg-base);
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);
@@ -118,7 +122,7 @@ h1, h2, h3 {
 
 .section {
   break-inside: avoid-page;
-  margin-bottom: 22px;
+  margin-bottom: 28px;
 }
 
 .section-title {
@@ -131,10 +135,24 @@ h1, h2, h3 {
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-primary-dark);
+  color: var(--color-primary-light);
   border-bottom: 1px solid var(--color-border);
   padding-bottom: 4px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
+}
+
+.section-desc {
+  font-size: 9px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 0 0 10px 0;
+  max-width: 90%;
+}
+
+.exec-summary {
+  font-size: 10.5px;
+  color: var(--color-text-body);
+  line-height: 1.65;
 }
 
 .run-id {
@@ -145,10 +163,25 @@ h1, h2, h3 {
 
 /* Page de garde */
 .cover {
-  height: 24cm;
+  height: 20cm;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  background: radial-gradient(circle at 20% 25%, rgba(14, 165, 233, 0.10) 0%, rgba(9, 10, 15, 0) 55%);
+}
+.cover-tagline {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  max-width: 70%;
+  line-height: 1.6;
+  margin-top: 4px;
+}
+.cover-logo {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  margin-bottom: 18px;
 }
 .cover .hero-label {
   font-family: var(--font-mono);
@@ -161,6 +194,7 @@ h1, h2, h3 {
 .cover h1 {
   font-size: 34px;
   line-height: 1.15;
+  color: var(--color-text-body);
 }
 .cover .period {
   font-family: var(--font-mono);
@@ -189,27 +223,37 @@ h1, h2, h3 {
 }
 
 .kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* CSS Grid `repeat(auto-fit, ...)` n'est pas supporté par WeasyPrint (silently ignoré,
+     warning au rendu) — flexbox fait le même travail ("pas de colonne vide" quel que soit le
+     nombre de cards) et est déjà utilisé ailleurs dans ce fichier (.cover) sans problème de
+     rendu. */
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 .kpi-card {
+  flex: 1 1 120px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg-surface);
   padding: 10px 12px;
+  position: relative;
 }
 .kpi-card .value {
   font-family: var(--font-display);
   font-size: 22px;
   font-weight: 700;
-  color: var(--color-primary-dark);
+  color: var(--color-primary-light);
 }
 .kpi-card .label {
   font-family: var(--font-mono);
   font-size: 8px;
   text-transform: uppercase;
   color: var(--color-text-muted);
+}
+.kpi-spark {
+  margin-top: 4px;
+  line-height: 0;
 }
 
 table {
@@ -240,6 +284,13 @@ td {
 td.mono, th.mono {
   font-family: var(--font-mono);
 }
+tbody tr:nth-child(even) {
+  /* --color-border-subtle est presque invisible sur --color-bg-base (contraste trop faible
+     entre les deux tons de noir) — sur la table CVE (lignes de 8-12 lignes de description
+     enveloppée), le seul border-bottom ne suffisait pas à distinguer une ligne de la
+     suivante. Le zébrage résout ça sans dépendre du contraste de la bordure. */
+  background: var(--color-bg-surface);
+}
 
 .badge {
   /* font-weight explicite : un badge dans .kpi-card .value (font-weight:700) hériterait ce
@@ -254,7 +305,7 @@ td.mono, th.mono {
   border-radius: var(--radius-sm);
 }
 .badge-error {
-  background: rgba(239, 68, 68, 0.12);
+  background: rgba(239, 68, 68, 0.15);
   color: var(--color-error);
 }
 .badge-neutral {
@@ -265,37 +316,82 @@ td.mono, th.mono {
 .trend-up { color: var(--color-error); }
 .trend-down { color: var(--color-success); }
 
-/* Barres horizontales CSS pures — réutilisées par top pays / top vendors / répartition CWE
-   (pas de lib de graph pour un simple bar chart, cf. lot 5 §8). */
-.bar-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  border-bottom: 1px solid var(--color-border-subtle);
+/* Statut des sources — même mapping statut→couleur que SourceStatusBadges.tsx côté frontend
+   (ok=success, skipped*=muted, sinon=error), pour que web et PDF s'accordent visuellement.
+   Volontairement en inline-block + margin plutôt qu'en flexbox imbriqué (flex + gap dans un
+   flex-wrap parent a produit un chevauchement de texte entre badges, vérifié empiriquement
+   sur WeasyPrint 62.3) — inline-block est un mécanisme de wrap plus ancien et plus robuste
+   pour ce cas simple de "mots qui passent à la ligne". */
+.source-badges {
+  font-size: 0; /* neutralise l'espace blanc entre inline-block adjacents dans le HTML source */
 }
-.bar-row .bar-label {
-  flex: 0 0 34%;
-  font-size: 9.5px;
-}
-.bar-row .bar-track {
-  flex: 1 1 auto;
-  height: 8px;
-  background: var(--color-bg-elevated);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-}
-.bar-row .bar-fill {
-  height: 100%;
-  background: var(--color-primary);
-  border-radius: var(--radius-sm);
-}
-.bar-row .bar-count {
-  flex: 0 0 40px;
-  text-align: right;
+.source-badge {
+  display: inline-block;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 8px;
+  white-space: nowrap;
+  padding: 3px 8px;
+  margin: 0 5px 5px 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+.source-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.source-name {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-body);
+  margin-right: 4px;
+}
+.source-value {
   color: var(--color-text-muted);
+}
+.source-ok .source-dot { background: var(--color-success); }
+.source-failed .source-dot { background: var(--color-error); }
+.source-skipped .source-dot { background: var(--color-text-muted); }
+
+/* Chips pour top pays / top vendors — remplace un bar-chart CSS (supprimé) qui rendait mal
+   sur ce type de données : la quasi-totalité des entrées ont count=1, un bar-chart affichait
+   alors 7-8 barres visuellement identiques sans rien communiquer qu'un chiffre ne dise déjà.
+   Volontairement en inline-block + margin (même contrainte que .source-badge ci-dessus, pas
+   de flexbox imbriqué — vérifié empiriquement bugué sur WeasyPrint 62.3). */
+.chip-list {
+  font-size: 0;
+}
+.chip {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-text-body);
+  white-space: nowrap;
+  padding: 4px 10px;
+  margin: 0 6px 6px 0;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+.chip-count {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  margin-left: 6px;
+}
+.chip-lead {
+  border-color: var(--color-primary);
+  background: rgba(14, 165, 233, 0.08);
+}
+.chip-lead .chip-count {
+  color: var(--color-primary-light);
+}
+
+.col-count {
+  text-align: right;
 }
 
 .lineage-sources {
@@ -309,4 +405,5 @@ td.mono, th.mono {
   /* <strong> = bold (700) UA par défaut, absent en Plus Jakarta Sans (400/500/600 seulement
      embarqués) -> fallback système sans ce reset, même raison que la règle th ci-dessus. */
   font-weight: 600;
+  color: var(--color-text-body);
 }

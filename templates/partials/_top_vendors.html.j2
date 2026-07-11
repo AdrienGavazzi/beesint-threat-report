@@ -1,17 +1,9 @@
 <section class="section">
   <h2 class="section-title">Top Vendors</h2>
+  <p class="section-desc">Software vendors/products named most often across this week's critical CVEs.</p>
   {% if vendors.top_items %}
-  {% set max_count = vendors.top_items | map(attribute="cve_count") | list | max %}
-  <div>
-    {% for item in vendors.top_items %}
-    <div class="bar-row">
-      <div class="bar-label">{{ item.vendor_name }}</div>
-      <div class="bar-track">
-        <div class="bar-fill" style="width: {{ (item.cve_count / max_count * 100) if max_count else 0 }}%"></div>
-      </div>
-      <div class="bar-count">{{ item.cve_count }}</div>
-    </div>
-    {% endfor %}
+  <div class="chip-list">
+    {% for item in vendors.top_items %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.vendor_name }}<span class="chip-count">{{ item.cve_count }}</span></span>{% endfor %}
   </div>
   {% endif %}
 </section>

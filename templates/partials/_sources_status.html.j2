@@ -1,0 +1,20 @@
+<section class="section">
+  <h2 class="section-title">Source Status</h2>
+  <p class="section-desc">Confirms which upstream intelligence feeds responded this run — a resilient pipeline degrades gracefully rather than failing silently.</p>
+  <div class="source-badges">
+    {% for source in sources_status %}
+    {% if source.status == "ok" %}
+      {% set status_class = "source-ok" %}
+    {% elif source.status.startswith("skipped") %}
+      {% set status_class = "source-skipped" %}
+    {% else %}
+      {% set status_class = "source-failed" %}
+    {% endif %}
+    <span class="source-badge {{ status_class }}">
+      <span class="source-dot"></span>
+      <span class="source-name">{{ source.name }}</span>
+      <span class="source-value">{{ source.status }}</span>
+    </span>
+    {% endfor %}
+  </div>
+</section>

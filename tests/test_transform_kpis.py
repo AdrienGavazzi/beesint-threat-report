@@ -56,3 +56,48 @@ def test_compute_kpis_trend_pct_vs_previous():
     )
     kpis = compute_kpis(cve_df, kev_empty, feodo_empty, urlhaus_empty, None, previous)
     assert kpis.cve_critical_trend_pct == 100.0
+
+
+def test_compute_kpis_kev_c2_url_trend_pct_vs_previous():
+    kev_df = pl.DataFrame(
+        {"cve_id": ["CVE-1", "CVE-2"], "due_date": [None, None], "known_ransomware_campaign_use": [None, None]}
+    )
+    feodo_df = pl.DataFrame({"ip_address": ["1.1.1.1"], "status": ["online"], "country": ["US"]})
+    urlhaus_df = pl.DataFrame({"url": ["http://x"], "url_status": ["online"]})
+    cve_empty = pl.DataFrame({"cve_id": [], "vendor": [], "cwe_ids": []})
+
+    previous = ReportKpis(
+        cve_critical_count=0,
+        cve_critical_trend_pct=None,
+        cve_high_count=0,
+        kev_new_count=1,
+        kev_urgent_count=0,
+        kev_ransomware_count=0,
+        mean_time_to_kev_days=None,
+        c2_active_count=2,
+        malicious_url_count=4,
+        top_countries=[],
+        top_vendors=[],
+        cwe_distribution=[],
+    )
+    kpis = compute_kpis(cve_empty, kev_df, feodo_df, urlhaus_df, None, previous)
+
+    assert kpis.kev_new_count == 2
+    assert kpis.kev_new_trend_pct == 100.0
+    assert kpis.c2_active_count == 1
+    assert kpis.c2_active_trend_pct == -50.0
+    assert kpis.malicious_url_count == 1
+    assert kpis.malicious_url_trend_pct == -75.0
+
+
+def test_compute_kpis_cold_start_new_trend_fields_none():
+    cve_df = pl.DataFrame({"cve_id": ["CVE-1"], "vendor": ["acme"], "cwe_ids": [[]]})
+    kev_df = pl.DataFrame({"cve_id": [], "due_date": [], "known_ransomware_campaign_use": []})
+    feodo_df = pl.DataFrame({"ip_address": [], "status": [], "country": []})
+    urlhaus_df = pl.DataFrame({"url": [], "url_status": []})
+
+    kpis = compute_kpis(cve_df, kev_df, feodo_df, urlhaus_df, mean_time_to_kev=None, previous_kpis=None)
+
+    assert kpis.kev_new_trend_pct is None
+    assert kpis.c2_active_trend_pct is None
+    assert kpis.malicious_url_trend_pct is None

@@ -1,9 +1,11 @@
 <section class="section">
   <h2 class="section-title">New Critical CVEs</h2>
+  <p class="section-desc">Newly disclosed vulnerabilities rated 9.0+ severity — the ones attackers move fastest to weaponize.</p>
   <div class="kpi-grid">
     <div class="kpi-card">
       <div class="value">{{ cve.critical_count }}</div>
       <div class="label">Critical this week</div>
+      {% if cve.sparkline %}<div class="kpi-spark">{{ cve.sparkline | safe }}</div>{% endif %}
     </div>
     <div class="kpi-card">
       <div class="value">
