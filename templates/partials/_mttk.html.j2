@@ -2,18 +2,28 @@
   <h2 class="section-title">Mean-Time-to-KEV</h2>
   <p class="section-desc">Average days between a vulnerability's public disclosure and its confirmed active exploitation — shorter means less warning time for defenders.</p>
   {% if mttk.sample_size > 0 %}
-  <div class="kpi-grid">
-    <div class="kpi-card">
-      <div class="value">{{ mttk.average_days if mttk.average_days is not none else "N/A" }}</div>
-      <div class="label">Average (days)</div>
+  <div class="chart-row">
+    {% if mttk.gauge_svg %}
+    <div class="chart-card" style="flex: 0 0 auto;">
+      <p class="chart-card-title">Median lag (color zones: &lt;7d / 7-30d / &gt;30d)</p>
+      {{ mttk.gauge_svg | safe }}
     </div>
-    <div class="kpi-card">
-      <div class="value">{{ mttk.median_days if mttk.median_days is not none else "N/A" }}</div>
-      <div class="label">Median (days)</div>
-    </div>
-    <div class="kpi-card">
-      <div class="value">{{ mttk.sample_size }}</div>
-      <div class="label">Sample size</div>
+    {% endif %}
+    <div class="chart-card" style="flex: 1 1 200px;">
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="value">{{ mttk.average_days if mttk.average_days is not none else "N/A" }}</div>
+          <div class="label">Average (days)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="value">{{ mttk.median_days if mttk.median_days is not none else "N/A" }}</div>
+          <div class="label">Median (days)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="value">{{ mttk.sample_size }}</div>
+          <div class="label">Sample size</div>
+        </div>
+      </div>
     </div>
   </div>
   {% else %}

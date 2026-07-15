@@ -8,7 +8,7 @@ from beesint_threat_report.validate.schemas import (
     GreyNoiseClassification,
     KevEntry,
     NvdCveRecord,
-    PhishTankEntry,
+    OpenPhishEntry,
     ShodanInternetDbRecord,
     SpamhausRange,
     UrlhausEntry,
@@ -179,26 +179,6 @@ def test_greynoise_classification_keeps_raw_value():
     assert record.classification == "benign"  # jamais remappé, cf. extract/greynoise.py
 
 
-def test_phishtank_entry_valid():
-    record = PhishTankEntry(
-        phish_id="123",
-        url="http://evil.example/login",
-        submission_time=datetime(2026, 7, 1, tzinfo=UTC),
-        verified=True,
-        online=True,
-        target="Example Bank",
-    )
-    assert record.phish_id == "123"
-    assert record.submission_time.tzinfo is not None
-
-
-def test_phishtank_entry_naive_datetime_forced_utc():
-    record = PhishTankEntry(
-        phish_id="123",
-        url="http://evil.example/login",
-        submission_time=datetime(2026, 7, 1),
-        verified=False,
-        online=False,
-    )
-    assert record.submission_time.tzinfo == UTC
-    assert record.target == ""
+def test_openphish_entry_valid():
+    record = OpenPhishEntry(url="http://evil.example/login")
+    assert record.url == "http://evil.example/login"

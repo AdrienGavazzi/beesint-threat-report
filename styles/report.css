@@ -100,6 +100,15 @@
     font-size: 7.5px;
     color: var(--color-text-muted);
   }
+  /* Petite marque BeeSINT récurrente en en-tête de chaque page (hors couverture, qui a déjà son
+     propre branding complet) — pour que la source du rapport reste identifiable même si le PDF
+     est repartagé/extrait de son contexte d'origine. */
+  @top-right {
+    content: "BeeSINT — beesint.com";
+    font-family: var(--font-mono);
+    font-size: 7.5px;
+    color: var(--color-text-muted);
+  }
 }
 
 /* Page de garde sans marge : .cover gère son propre padding interne (voir plus bas) pour
@@ -109,13 +118,15 @@
 @page :first {
   margin: 0;
   background: var(--color-bg-base);
-  /* margin:0 alone doesn't suppress the recurring @bottom-* margin-box content inherited from
-     the base @page rule above — WeasyPrint still paints it flush against the physical edge with
-     no margin to sit inside. Cover page has its own run-id/period footer baked into .cover,
-     the recurring footer would just double up flush against the bleed. */
+  /* margin:0 alone doesn't suppress the recurring @bottom-*/@top-* margin-box content inherited
+     from the base @page rule above — WeasyPrint still paints it flush against the physical edge
+     with no margin to sit inside. Cover page has its own run-id/period footer AND full BeeSINT
+     branding baked into .cover, the recurring header/footer would just double up flush against
+     the bleed. */
   @bottom-left { content: none; }
   @bottom-right { content: none; }
   @bottom-center { content: none; }
+  @top-right { content: none; }
 }
 
 * {
@@ -195,7 +206,12 @@ h1, h2, h3 {
   position: relative;
   height: 20cm;
   padding: 2.2cm 1.8cm 2.6cm 1.8cm;
-  background: radial-gradient(circle at 20% 25%, rgba(14, 165, 233, 0.10) 0%, rgba(9, 10, 15, 0) 55%);
+  /* break-after: la couverture (20cm, @page :first sans marge) laisse ~9-10cm libres sur la
+     page physique — sans ce break explicite, Executive Summary/Source Status s'enchaînaient sur
+     cette même page 1 avant le premier saut naturel (bug confirmé au rendu réel). */
+  break-after: page;
+  page-break-after: always;
+  background: radial-gradient(circle at 20% 25%, rgba(14, 165, 233, 0.30) 0%, rgba(9, 10, 15, 0) 60%);
 }
 .cover-inner {
   height: 100%;
@@ -283,6 +299,13 @@ h1, h2, h3 {
   font-weight: 700;
   color: var(--color-primary-light);
 }
+/* Contents-page KPI cards colored to match their corresponding line in the run-history chart
+   below them (_LINE_SERIES_COLORS in pdf_context.py) — every KPI rendered identically blue
+   regardless of metric was a confirmed mismatch at the real render. Malicious URLs isn't one of
+   the 3 history-chart lines (own scale/trend-chart) so it keeps the default primary-light. */
+.kpi-card--cve .value { color: var(--color-primary); }
+.kpi-card--kev .value { color: var(--color-warning); }
+.kpi-card--c2 .value { color: #A78BFA; } /* matches _LINE_SERIES_COLORS["c2"], not a design token */
 .kpi-card .label {
   font-family: var(--font-mono);
   font-size: 8px;
@@ -495,6 +518,22 @@ tbody tr:nth-child(even) {
   margin-right: 4px;
   vertical-align: middle;
 }
+/* Donut + légende côte à côte (severity split) plutôt que légende empilée dessous — il restait de
+   l'espace horizontal inexploité dans la card. Simple flex row à 2 enfants, pas de wrap imbriqué
+   (le cas qui casse sur WeasyPrint 62.3 concerne des enfants wrap avec gap, pas une paire fixe). */
+.donut-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.donut-row .chart-legend {
+  font-size: inherit;
+  margin-top: 0;
+}
+.donut-row .chart-legend-item {
+  display: block;
+  margin: 0 0 8px 0;
+}
 .map-frame {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -503,14 +542,28 @@ tbody tr:nth-child(even) {
   margin-top: 10px;
   padding: 10px;
 }
+.map-frame svg {
+  /* Pas de width/height fixes sur la racine <svg> (pdf_context.py) : seule cette règle pilote la
+     taille réelle, pour que la carte remplisse la largeur de la card plutôt que de rendre en
+     dessous de l'espace disponible (bug confirmé au rendu réel). */
+  width: 100%;
+  height: auto;
+  display: block;
+}
 
-/* Cartes de source pour la section lineage — même mécanique flexbox que .kpi-grid/.chart-row
-   ci-dessus (pas de repeat(auto-fit,...), non supporté par WeasyPrint). Remplace l'ancienne
-   <ul class="lineage-sources"> texte brut "nom - url - note". */
+/* Cartes de source pour la section lineage. Remplace l'ancienne <ul class="lineage-sources">
+   texte brut "nom - url - note".
+   IMPORTANT — bug WeasyPrint 62.3 confirmé au rendu réel (pas seulement en lecture de CSS) :
+   `display:flex; flex-wrap:wrap; gap:10px` fonctionne pour .kpi-grid/.chart-row (qui ne tiennent
+   jamais que sur 1 seule ligne à ce nombre d'items), mais dès que flex-wrap force plusieurs
+   LIGNES (7 cartes ici → 3 lignes), le `gap` est silencieusement ignoré : les cartes se touchent,
+   bordures collées, comme si gap:0. C'est distinct du bug "nested flex+gap casse le wrap de texte"
+   déjà documenté pour .chip/.source-badge — celui-ci ne concerne que gap+wrap multi-lignes. Fix :
+   marge explicite sur .lineage-card (même pattern que .chip/.source-badge), le parent garde
+   flex-wrap pour la mise en ligne mais plus aucune dépendance à gap pour l'espacement réel. */
 .lineage-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
   margin-top: 10px;
 }
 .lineage-card {
@@ -519,23 +572,73 @@ tbody tr:nth-child(even) {
   border-radius: var(--radius-md);
   background: var(--color-bg-surface);
   padding: 10px 12px;
+  margin: 0 10px 10px 0;
+}
+.lineage-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.lineage-badge {
+  /* Monogramme généré (initiale de la source), pas de vrai logo tiers — cf. décision produit :
+     évite tout enjeu de droit d'usage de marque et reste cohérent avec la DA sombre (un vrai
+     logo suppose un fond clair/recolorisation par source, pas maintenable ici). */
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
 }
 .lineage-card-name {
   /* font-weight explicite : même raison que .badge/.section-title/th ci-dessus (700 UA absent
      des webfonts embarqués). */
   font-weight: 600;
+  font-size: 10.5px;
   color: var(--color-text-body);
-  margin: 0 0 4px 0;
+  margin: 0;
 }
 .lineage-card-url {
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: 8px;
   color: var(--color-text-muted);
   margin: 0 0 4px 0;
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .lineage-card-note {
   font-size: 8.5px;
   color: var(--color-text-muted);
   margin: 0;
+}
+
+/* Bloc de branding en clôture du rapport (après Lineage) — pour que le PDF reste identifiable
+   même partagé/extrait sans son en-tête (@top-right du @page, cf. plus haut). */
+.report-footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.report-footer-brand img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+.report-footer-brand-text {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+.report-footer-brand-text strong {
+  color: var(--color-text-body);
+  font-weight: 600;
 }

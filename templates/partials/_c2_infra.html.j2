@@ -67,22 +67,34 @@
 
   {% if c2.malware_family_breakdown %}
   <p class="chart-card-title" style="margin-top: 12px;">Malware family breakdown</p>
+  {% if c2.malware_family_chart %}
+  {{ c2.malware_family_chart | safe }}
+  {% else %}
   <div class="chip-list">
     {% for item in c2.malware_family_breakdown %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.malware_family }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
   </div>
   {% endif %}
+  {% endif %}
 
   {% if c2.top_asn %}
   <p class="chart-card-title" style="margin-top: 12px;">Top ASN / hosting</p>
+  {% if c2.top_asn_chart %}
+  {{ c2.top_asn_chart | safe }}
+  {% else %}
   <div class="chip-list">
     {% for item in c2.top_asn %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.asn }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
   </div>
   {% endif %}
+  {% endif %}
 
   {% if c2.open_ports_breakdown %}
   <p class="chart-card-title" style="margin-top: 12px;">Top open ports (Shodan InternetDB)</p>
+  {% if c2.open_ports_chart %}
+  {{ c2.open_ports_chart | safe }}
+  {% else %}
   <div class="chip-list">
     {% for item in c2.open_ports_breakdown %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.port }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
   </div>
+  {% endif %}
   {% endif %}
 </section>

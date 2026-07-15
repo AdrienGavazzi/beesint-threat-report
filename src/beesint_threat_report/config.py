@@ -32,8 +32,9 @@ class Settings:
     spamhaus_edrop_url: str = "https://www.spamhaus.org/drop/edrop.txt"
     greynoise_api_key: str | None = None  # optionnel — étape sautée si absente
     greynoise_base_url: str = "https://api.greynoise.io/v3/community"
-    phishtank_api_key: str | None = None  # optionnel — étape sautée si absente
-    phishtank_base_url: str = "http://data.phishtank.com/data"
+    # PhishTank retiré (inscriptions fermées, plus de clé API obtenable, cf. décision produit) —
+    # remplacé par OpenPhish : flux public gratuit, aucune clé, même usage (URLs phishing).
+    openphish_feed_url: str = "https://openphish.com/feed.txt"
 
     # Stockage
     storage_backend: str = "local"  # "local" | "s3"
@@ -86,7 +87,6 @@ def load_settings() -> Settings:
         nvd_api_key=os.environ.get("NVD_API_KEY") or None,
         threatfox_auth_key=os.environ.get("THREATFOX_AUTH_KEY") or None,
         greynoise_api_key=os.environ.get("GREYNOISE_API_KEY") or None,
-        phishtank_api_key=os.environ.get("PHISHTANK_API_KEY") or None,
         storage_backend=storage_backend,
         s3_bucket=os.environ.get("ORACLE_S3_BUCKET") or None,
         s3_endpoint_url=os.environ.get("ORACLE_S3_ENDPOINT") or None,

@@ -19,7 +19,7 @@ from beesint_threat_report.extract import (
     greynoise,
     kev,
     nvd,
-    phishtank,
+    openphish,
     shodan_internetdb,
     spamhaus_drop,
     threatfox,
@@ -33,7 +33,7 @@ from beesint_threat_report.publish.telemetry import log_run_summary, sentry_brea
 from beesint_threat_report.publish.webhook import publish_status
 from beesint_threat_report.transform import dedup, diffing, geoloc, mttk, ranking
 from beesint_threat_report.transform import kpis as kpis_module
-from beesint_threat_report.transform.phishtank_merge import merge_phishtank_urls
+from beesint_threat_report.transform.openphish_merge import merge_openphish_urls
 from beesint_threat_report.transform.threatfox import merge_threatfox_ip_iocs
 from beesint_threat_report.validate.frames import (
     validate_cve_frame,
@@ -47,7 +47,7 @@ from beesint_threat_report.validate.schemas import (
     GreyNoiseClassification,
     KevEntry,
     NvdCveRecord,
-    PhishTankEntry,
+    OpenPhishEntry,
     ShodanInternetDbRecord,
     SpamhausRange,
     ThreatFoxIoc,
@@ -431,29 +431,29 @@ async def _run_greynoise_source(
         return {}, "failed"
 
 
-async def _run_phishtank_source(
+async def _run_openphish_source(
     client: httpx.AsyncClient,
     settings: Settings,
     run_id: str,
     period_end,
     base_path: str,
     storage_options: dict | None,
-) -> tuple[list[PhishTankEntry], str]:
-    if not settings.phishtank_api_key:
-        return [], "skipped:no_api_key"
+) -> tuple[list[OpenPhishEntry], str]:
+    """Remplace _run_phishtank_source (PhishTank : inscriptions fermées, plus de clé obtenable).
+    OpenPhish est un flux public gratuit, aucune clé requise — jamais "skipped:no_api_key"."""
     try:
-        key = cache_key("phishtank", {"period_end_date": period_end.date().isoformat()})
+        key = cache_key("openphish", {"period_end_date": period_end.date().isoformat()})
         raw = await get_or_fetch(
             key,
-            lambda: phishtank.fetch_phishtank_feed(client, settings.phishtank_api_key, settings.phishtank_base_url),
+            lambda: openphish.fetch_openphish_feed(client, settings.openphish_feed_url),
             settings.cache_dir,
             settings.force_refresh,
         )
-        valid, rejected = validate_batch(raw, PhishTankEntry, source="phishtank", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "phishtank", run_id, rejected)
+        valid, rejected = validate_batch(raw, OpenPhishEntry, source="openphish", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "openphish", run_id, rejected)
         return valid, "ok"
     except Exception:
-        logger.exception("phishtank: échec de la source, run continue en dégradé")
+        logger.exception("openphish: échec de la source, run continue en dégradé")
         return [], "failed"
 
 
@@ -469,7 +469,10 @@ def _build_top_cves(ranked_cve_df: pl.DataFrame, kev_df: pl.DataFrame) -> list[d
             {
                 "cve_id": row["cve_id"],
                 "description": row.get("description"),
-                "cvss_score": row.get("cvss_v3_score"),
+                # round() : évite un artefact d'affichage type "9.700000000000001" si une valeur a
+                # transité par une opération flottante en amont (tri/agrégation Polars) plutôt que
+                # d'arriver telle quelle depuis le JSON NVD.
+                "cvss_score": round(v, 1) if (v := row.get("cvss_v3_score")) is not None else None,
                 "severity": row.get("cvss_v3_severity"),
                 "vendor": row.get("vendor"),
                 "product": None,
@@ -584,20 +587,20 @@ async def run(force_refresh: bool = False) -> dict:
         sources_status["threatfox"] = threatfox_status
         sentry_breadcrumb_run_step("extract_threatfox", threatfox_status)
 
-        phishtank_entries, phishtank_status = await _run_phishtank_source(
+        openphish_entries, openphish_status = await _run_openphish_source(
             client, settings, run_id, period_end, base_path, storage_options
         )
-        sources_status["phishtank"] = phishtank_status
-        sentry_breadcrumb_run_step("extract_phishtank", phishtank_status)
+        sources_status["openphish"] = openphish_status
+        sentry_breadcrumb_run_step("extract_openphish", openphish_status)
 
         ip_frame = merge_threatfox_ip_iocs(feodo_df, threatfox_iocs)
         if ip_frame.height:
             ip_frame = validate_ip_threat_frame(ip_frame)
 
-        # Merge PhishTank AVANT rank_top_n_urls (cf. CDC "Data source integration rule") — les
+        # Merge OpenPhish AVANT rank_top_n_urls (cf. CDC "Data source integration rule") — les
         # entrées confirmées par 2 sources doivent pouvoir peser sur le cut top-N, pas seulement
         # sur l'affichage d'un item déjà retenu.
-        url_frame = merge_phishtank_urls(urlhaus_df, phishtank_entries)
+        url_frame = merge_openphish_urls(urlhaus_df, openphish_entries, observed_at=period_end)
 
         joined = (
             mttk.join_nvd_kev(cve_df, kev_df)

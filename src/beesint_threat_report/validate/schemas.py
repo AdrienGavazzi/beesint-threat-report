@@ -152,19 +152,13 @@ class GreyNoiseClassification(BaseModel):
         return value
 
 
-class PhishTankEntry(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    phish_id: str
-    url: str
-    submission_time: datetime
-    verified: bool
-    online: bool
-    target: str = ""
+class OpenPhishEntry(BaseModel):
+    """Remplace PhishTankEntry (inscriptions PhishTank fermées, plus de clé API obtenable). Le
+    flux public OpenPhish (feed.txt) est une simple liste d'URLs sans métadonnées par entrée
+    (pas de submission_time/verified/target) — d'où le schéma minimal ici."""
 
-    @field_validator("submission_time")
-    @classmethod
-    def _force_utc(cls, value: datetime) -> datetime:
-        return _to_utc(value)
+    model_config = ConfigDict(frozen=True)
+    url: str
 
 
 class ThreatFoxIoc(BaseModel):

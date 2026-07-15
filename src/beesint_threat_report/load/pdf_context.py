@@ -60,9 +60,9 @@ _SOURCES = [
         "note": "Tier gratuit, clé API requise — classification IP.",
     },
     {
-        "name": "PhishTank",
-        "url": "https://www.phishtank.com/",
-        "note": "Opéré par Cisco Talos — clé API requise pour le flux bulk.",
+        "name": "OpenPhish",
+        "url": "https://openphish.com/",
+        "note": "Flux public communautaire — gratuit, sans clé API.",
     },
 ]
 
@@ -76,6 +76,9 @@ _TEXT_BODY_COLOR = "#E2E8F0"
 _TEXT_MUTED_COLOR = "#6B849E"
 _GRID_COLOR = "#2A2D3A"  # --color-border
 _MAP_DOT_COLOR = "#F59E0B"  # --color-accent-gold
+# Distinct du reste de la palette map (voir _build_world_map_svg) — plus clair que
+# --color-bg-elevated (#1a1f2e, fond de .map-frame) pour que la silhouette se détache clairement.
+_MAP_LAND_COLOR = "#293552"
 _DONUT_CRITICAL_COLOR = "#EF4444"  # --color-error
 _DONUT_HIGH_COLOR = "#F59E0B"  # --color-warning
 _HISTOGRAM_COLOR = "#0EA5E9"  # --color-primary
@@ -99,6 +102,15 @@ def _fmt_date(value: datetime) -> str:
     return value.strftime("%d %B %Y")
 
 
+def _sanitize_status(status: str) -> str:
+    """Strips the detailed skip/failure reason (e.g. "skipped:no_api_key" -> "skipped") for
+    public-facing surfaces (PDF, public web badge). The full reason stays available in whatever
+    the ETL logs stdout (run_id, per-source status) and in the raw `sources_status` dict this
+    function's caller still has before sanitizing — nothing upstream of this display boundary
+    loses the detail, only the PDF/public rendering does."""
+    return status.split(":", 1)[0]
+
+
 def _build_sparkline_svg(
     values: list[float], width: int = 64, height: int = 20, color: str = _SPARKLINE_COLOR
 ) -> str | None:
@@ -120,7 +132,14 @@ def _build_sparkline_svg(
 def _build_world_map_svg(items: list[dict], width: int = 480, height: int = 220) -> str | None:
     """Scatter équirectangulaire pur SVG (pas de tuiles/basemap : aucun appel réseau depuis le
     rendu PDF, cf. philosophie "continue en dégradé" — un run ETL ne doit jamais dépendre de la
-    disponibilité d'un service tiers juste pour dessiner une carte)."""
+    disponibilité d'un service tiers juste pour dessiner une carte).
+
+    Pas de largeur/hauteur fixes sur la racine <svg> (seulement viewBox) : `.map-frame svg` pose
+    `width:100%; height:auto` côté CSS pour que la carte remplisse la card plutôt que de rendre en
+    dessous de l'espace dispo (vérifié empiriquement — des attributs width/height fixes sur <svg>
+    ignorent la largeur réelle du conteneur). Graticule lon/lat retirée : elle précédait la
+    silhouette réelle (placeholder) et, une fois superposée à `_MAP_LAND_COLOR`, ne faisait que se
+    confondre visuellement avec le contour des continents sans rien ajouter."""
     points = [
         (item["lon"], item["lat"]) for item in items if item.get("lat") is not None and item.get("lon") is not None
     ]
@@ -130,18 +149,6 @@ def _build_world_map_svg(items: list[dict], width: int = 480, height: int = 220)
     def _project(lon: float, lat: float) -> tuple[float, float]:
         return (lon + 180) / 360 * width, (90 - lat) / 180 * height
 
-    graticule = []
-    for lon in range(-180, 181, 30):
-        x, _ = _project(lon, 0)
-        graticule.append(
-            f'<line x1="{x:.1f}" y1="0" x2="{x:.1f}" y2="{height}" stroke="{_GRID_COLOR}" stroke-width="0.5"/>'
-        )
-    for lat in range(-60, 91, 30):
-        _, y = _project(0, lat)
-        graticule.append(
-            f'<line x1="0" y1="{y:.1f}" x2="{width}" y2="{y:.1f}" stroke="{_GRID_COLOR}" stroke-width="0.5"/>'
-        )
-
     dots = []
     for lon, lat in points:
         x, y = _project(lon, lat)
@@ -150,23 +157,13 @@ def _build_world_map_svg(items: list[dict], width: int = 480, height: int = 220)
             f'stroke="{_MAP_DOT_COLOR}" stroke-opacity="0.25" stroke-width="5"/>'
         )
 
-    # fill volontairement _GRID_COLOR (pas --color-bg-elevated) : le SVG est affiché dans
-    # .map-frame dont le fond EST déjà --color-bg-elevated — un fill de la même couleur s'y
-    # fond entièrement quel que soit le fill-opacity (vérifié empiriquement, silhouette
-    # invisible au rendu). _GRID_COLOR est plus clair que le fond du cadre, donc visible dessus.
-    landmass = (
-        f'<path d="{WORLD_LANDMASS_PATH_D}" fill="{_GRID_COLOR}" fill-opacity="0.45" '
-        f'stroke="{_GRID_COLOR}" stroke-width="0.5"/>'
-    )
+    # Couleur dédiée, distincte de _GRID_COLOR (qui ne sert plus que de teinte de fallback
+    # ailleurs) — _GRID_COLOR partagé entre graticule/silhouette rendait les deux indiscernables
+    # au rendu (bug confirmé visuellement). _MAP_LAND_COLOR est délibérément plus clair que
+    # --color-bg-elevated (fond de .map-frame) pour se détacher nettement comme "terre" sur "mer".
+    landmass = f'<path d="{WORLD_LANDMASS_PATH_D}" fill="{_MAP_LAND_COLOR}" fill-opacity="0.9"/>'
 
-    return (
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="world-map">'
-        f'<rect x="0" y="0" width="{width}" height="{height}" fill="none" stroke="{_GRID_COLOR}" stroke-width="1"/>'
-        + landmass
-        + "".join(graticule)
-        + "".join(dots)
-        + "</svg>"
-    )
+    return f'<svg viewBox="0 0 {width} {height}" class="world-map">' + landmass + "".join(dots) + "</svg>"
 
 
 def _build_severity_donut_svg(critical_count: int, high_count: int, size: int = 130, stroke: int = 16) -> str | None:
@@ -279,6 +276,130 @@ def _build_history_line_chart_svg(
 
     lines = "".join(_polyline(values, _LINE_SERIES_COLORS[key]) for key, values in series.items())
     return f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="history-line-chart">{lines}</svg>'
+
+
+def _build_area_chart_svg(
+    values: list[float], width: int = 320, height: int = 110, color: str = _SPARKLINE_COLOR
+) -> str | None:
+    """Graphique de tendance dédié à une seule série (utilisé pour malicious URLs, dont l'échelle
+    en milliers rendrait un axe partagé avec CVE/KEV/C2 illisible, cf. commentaire sur
+    _LINE_SERIES_COLORS ci-dessus). Ligne + remplissage dégradé, même garde-fou que le sparkline
+    (retourne None sous _LINE_MIN_POINTS points)."""
+    if len(values) < _LINE_MIN_POINTS:
+        return None
+    lo, hi = min(values), max(values)
+    span = (hi - lo) or 1
+    margin = 10
+    plot_h = height - margin * 2
+    step = width / (len(values) - 1)
+
+    points = [(i * step, margin + plot_h - ((v - lo) / span * plot_h)) for i, v in enumerate(values)]
+    line_points = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+    area_points = f"0,{height} " + line_points + f" {width},{height}"
+
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="area-chart">'
+        f'<polygon points="{area_points}" fill="{color}" fill-opacity="0.14"/>'
+        f'<polyline points="{line_points}" fill="none" stroke="{color}" stroke-width="2" '
+        f'stroke-linecap="round" stroke-linejoin="round"/>'
+        f"</svg>"
+    )
+
+
+def _build_mini_bar_chart_svg(
+    rows: list[dict], label_key: str, count_key: str = "count", width: int = 340, height: int = 100
+) -> str | None:
+    """Bar-chart horizontal générique pour une liste déjà agrégée par _chip_breakdown (name +
+    count + pct_of_total, triée descendante). Ne rend rien si la distribution est plate (même
+    count sur la première et la dernière entrée) — un bar-chart n'ajoute aucun signal qu'un chiffre
+    ne dise déjà dans ce cas précis, même discipline que _HISTOGRAM_MIN_ITEMS/le chip-list déjà en
+    place pour countries/vendors."""
+    if len(rows) < 2 or rows[0][count_key] == rows[-1][count_key]:
+        return None
+
+    max_count = max(row[count_key] for row in rows) or 1
+    row_h = height / len(rows)
+    bar_h = row_h * 0.55
+    label_w = 120  # tient "malware_download" (17 car.) sans tronquer sur fond de card standard
+    plot_w = width - label_w - 30
+
+    bars = []
+    for i, row in enumerate(rows):
+        y = i * row_h + (row_h - bar_h) / 2
+        bar_w = max((row[count_key] / max_count) * plot_w, 2)
+        label = str(row[label_key])[:18]
+        bars.append(
+            f'<text x="0" y="{y + bar_h / 2 + 3:.1f}" fill="{_TEXT_MUTED_COLOR}" '
+            f'font-family="JetBrains Mono, monospace" font-size="8.5">{label}</text>'
+        )
+        bars.append(
+            f'<rect x="{label_w}" y="{y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" rx="2" fill="{_HISTOGRAM_COLOR}"/>'
+        )
+        bars.append(
+            f'<text x="{label_w + bar_w + 6:.1f}" y="{y + bar_h / 2 + 3:.1f}" fill="{_TEXT_BODY_COLOR}" '
+            f'font-family="JetBrains Mono, monospace" font-size="8.5">{row[count_key]}</text>'
+        )
+
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="mini-bar-chart">'
+        + "".join(bars)
+        + "</svg>"
+    )
+
+
+_MTTK_GAUGE_MAX_DAYS = 45  # au-delà, l'aiguille se cale au maximum plutôt que de sortir du cadran
+_MTTK_ZONE_GREEN_MAX = 7  # <7j : encore un délai de réaction raisonnable
+_MTTK_ZONE_AMBER_MAX = 30  # 7-30j : fenêtre resserrée : au-delà, retard jugé critique (zone rouge)
+
+
+def _build_mttk_gauge_svg(median_days: float, size: int = 200) -> str:
+    """Jauge semi-circulaire à zones de couleur (vert/ambre/rouge) avec aiguille sur la médiane.
+    Toujours un rendu (pas de None) : appelé uniquement quand sample_size > 0 côté template, donc
+    median_days est déjà garanti réel à ce stade."""
+    cx, cy, r, stroke = size / 2, size * 0.56, size * 0.4, size * 0.12
+
+    def _point(angle_deg: float) -> tuple[float, float]:
+        rad = math.radians(angle_deg)
+        return cx + r * math.cos(rad), cy - r * math.sin(rad)
+
+    def _value_to_angle(v: float) -> float:
+        v_clamped = max(0.0, min(v, _MTTK_GAUGE_MAX_DAYS))
+        return 180 - (v_clamped / _MTTK_GAUGE_MAX_DAYS) * 180
+
+    zones = [
+        (0, _MTTK_ZONE_GREEN_MAX, "#22C55E"),  # --color-success
+        (_MTTK_ZONE_GREEN_MAX, _MTTK_ZONE_AMBER_MAX, "#F59E0B"),  # --color-warning
+        (_MTTK_ZONE_AMBER_MAX, _MTTK_GAUGE_MAX_DAYS, "#EF4444"),  # --color-error
+    ]
+    arcs = []
+    for start, end, color in zones:
+        x1, y1 = _point(_value_to_angle(start))
+        x2, y2 = _point(_value_to_angle(end))
+        arcs.append(
+            f'<path d="M {x1:.1f} {y1:.1f} A {r:.1f} {r:.1f} 0 0 1 {x2:.1f} {y2:.1f}" '
+            f'fill="none" stroke="{color}" stroke-width="{stroke:.1f}" stroke-linecap="butt"/>'
+        )
+
+    needle_angle = _value_to_angle(median_days)
+    nx, ny = _point(needle_angle)
+    needle = (
+        f'<line x1="{cx}" y1="{cy}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="{_TEXT_BODY_COLOR}" stroke-width="2.5" '
+        f'stroke-linecap="round"/><circle cx="{cx}" cy="{cy}" r="4" fill="{_TEXT_BODY_COLOR}"/>'
+    )
+    label = (
+        f'<text x="{cx}" y="{cy + size * 0.22:.1f}" text-anchor="middle" fill="{_TEXT_BODY_COLOR}" '
+        f'font-family="JetBrains Mono, monospace" font-size="20" font-weight="700">{median_days:.1f}d</text>'
+        f'<text x="{cx}" y="{cy + size * 0.22 + 14:.1f}" text-anchor="middle" fill="{_TEXT_MUTED_COLOR}" '
+        f'font-family="JetBrains Mono, monospace" font-size="8" letter-spacing="1">MEDIAN</text>'
+    )
+
+    return (
+        f'<svg width="{size}" height="{size * 0.66:.0f}" viewBox="0 0 {size} {size * 0.66:.0f}" class="mttk-gauge">'
+        + "".join(arcs)
+        + needle
+        + label
+        + "</svg>"
+    )
 
 
 def _build_executive_summary(
@@ -553,7 +674,9 @@ def build_pdf_context(
             },
         },
         "executive_summary": _build_executive_summary(kpis, is_cold_start, sources_status, c2_cross_confirmed),
-        "sources_status": [{"name": name, "status": status} for name, status in sorted(sources_status.items())],
+        "sources_status": [
+            {"name": name, "status": _sanitize_status(status)} for name, status in sorted(sources_status.items())
+        ],
         "cve": {
             "critical_count": kpis.cve_critical_count,
             "critical_trend_pct": kpis.cve_critical_trend_pct,
@@ -575,6 +698,9 @@ def build_pdf_context(
             "average_days": kpis.mean_time_to_kev_days,
             "median_days": mttk_median_days,
             "sample_size": mttk_sample_size,
+            "gauge_svg": _build_mttk_gauge_svg(mttk_median_days)
+            if mttk_sample_size > 0 and mttk_median_days is not None
+            else None,
         },
         "c2": {
             "active_count": kpis.c2_active_count,
@@ -582,9 +708,14 @@ def build_pdf_context(
             "items": c2_items,
             "sparkline": _build_sparkline_svg(_series("c2_active_count", kpis.c2_active_count)),
             "map_svg": _build_world_map_svg(c2_items),
-            "malware_family_breakdown": _chip_breakdown(c2_items, "malware_family", "malware_family", _TOP_N_COUNTRIES),
-            "top_asn": _chip_breakdown(c2_items, "asn", "asn", _TOP_N_COUNTRIES),
-            "open_ports_breakdown": _open_ports_breakdown(c2_items, _TOP_N_COUNTRIES),
+            "malware_family_breakdown": (
+                _mf_breakdown := _chip_breakdown(c2_items, "malware_family", "malware_family", _TOP_N_COUNTRIES)
+            ),
+            "malware_family_chart": _build_mini_bar_chart_svg(_mf_breakdown, "malware_family"),
+            "top_asn": (_asn_breakdown := _chip_breakdown(c2_items, "asn", "asn", _TOP_N_COUNTRIES)),
+            "top_asn_chart": _build_mini_bar_chart_svg(_asn_breakdown, "asn"),
+            "open_ports_breakdown": (_ports_breakdown := _open_ports_breakdown(c2_items, _TOP_N_COUNTRIES)),
+            "open_ports_chart": _build_mini_bar_chart_svg(_ports_breakdown, "port"),
             "cross_confirmed": c2_cross_confirmed,
         },
         "malicious_urls": {
@@ -592,9 +723,11 @@ def build_pdf_context(
             "trend_pct": kpis.malicious_url_trend_pct,
             "items": malicious_url_items,
             "sparkline": _build_sparkline_svg(_series("malicious_url_count", kpis.malicious_url_count)),
-            "threat_type_breakdown": _chip_breakdown(
-                malicious_url_items, "threat_type", "threat_type", _TOP_N_COUNTRIES
+            "trend_chart": _build_area_chart_svg(_series("malicious_url_count", kpis.malicious_url_count)),
+            "threat_type_breakdown": (
+                _tt_breakdown := _chip_breakdown(malicious_url_items, "threat_type", "threat_type", _TOP_N_COUNTRIES)
             ),
+            "threat_type_chart": _build_mini_bar_chart_svg(_tt_breakdown, "threat_type"),
         },
         "threatfox": {
             "enabled": threatfox_enabled,

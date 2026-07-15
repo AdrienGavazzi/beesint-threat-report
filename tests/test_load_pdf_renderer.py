@@ -90,7 +90,7 @@ def minimal_context() -> dict:
             "urgency_flag": True,
             "sparkline": None,
         },
-        "mttk": {"average_days": 4.5, "median_days": 3.0, "sample_size": 1},
+        "mttk": {"average_days": 4.5, "median_days": 3.0, "sample_size": 1, "gauge_svg": None},
         "c2": {
             "active_count": 1,
             "trend_pct": None,
@@ -109,8 +109,11 @@ def minimal_context() -> dict:
             "sparkline": None,
             "map_svg": None,
             "malware_family_breakdown": [{"malware_family": "Heodo", "count": 1, "pct_of_total": 100.0}],
+            "malware_family_chart": None,
             "top_asn": [{"asn": "AS64500 EXAMPLE-AS", "count": 1, "pct_of_total": 100.0}],
+            "top_asn_chart": None,
             "open_ports_breakdown": [{"port": 443, "count": 1, "pct_of_total": 100.0}],
+            "open_ports_chart": None,
             "cross_confirmed": {"confirmed": 1, "total": 1},
         },
         "malicious_urls": {
@@ -122,11 +125,13 @@ def minimal_context() -> dict:
                     "threat_type": "malware_download",
                     "tags": ["exe", "elf"],
                     "date_added": "2026-06-04",
-                    "sources": ["urlhaus", "phishtank"],
+                    "sources": ["urlhaus", "openphish"],
                 }
             ],
             "sparkline": None,
+            "trend_chart": None,
             "threat_type_breakdown": [{"threat_type": "malware_download", "count": 1, "pct_of_total": 100.0}],
+            "threat_type_chart": None,
         },
         "threatfox": {"enabled": False, "families_count": 0, "families_trend_pct": None, "sparkline": None},
         "geo": {

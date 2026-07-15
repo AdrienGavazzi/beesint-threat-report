@@ -30,10 +30,12 @@
     {% if cve.severity_donut %}
     <div class="chart-card">
       <p class="chart-card-title">Severity split</p>
-      {{ cve.severity_donut | safe }}
-      <div class="chart-legend">
-        <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#EF4444"></span>Critical ({{ cve.critical_count }})</span>
-        <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#F59E0B"></span>High ({{ cve.high_volume_count }})</span>
+      <div class="donut-row">
+        {{ cve.severity_donut | safe }}
+        <div class="chart-legend">
+          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#EF4444"></span>Critical ({{ cve.critical_count }})</span>
+          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#F59E0B"></span>High ({{ cve.high_volume_count }})</span>
+        </div>
       </div>
     </div>
     {% endif %}

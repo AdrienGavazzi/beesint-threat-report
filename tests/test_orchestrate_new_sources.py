@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime
 
 import httpx
 import polars as pl
@@ -33,17 +33,6 @@ async def test_run_greynoise_source_skips_when_no_ips(tmp_path):
         data, status = await orchestrate._run_greynoise_source(client, settings, "run-1", [], str(tmp_path), None)
     assert data == {}
     assert status == "skipped:no_c2_ips"
-
-
-@pytest.mark.asyncio
-async def test_run_phishtank_source_skips_before_network_call_when_key_absent(tmp_path):
-    settings = Settings(phishtank_api_key=None, cache_dir=tmp_path / ".cache")
-    async with httpx.AsyncClient() as client:
-        entries, status = await orchestrate._run_phishtank_source(
-            client, settings, "run-1", datetime.now(UTC), str(tmp_path), None
-        )
-    assert entries == []
-    assert status == "skipped:no_api_key"
 
 
 @pytest.mark.asyncio

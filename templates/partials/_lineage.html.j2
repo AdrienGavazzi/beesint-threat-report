@@ -17,10 +17,14 @@
     </div>
   </div>
 
+  {% set badge_colors = ["#0EA5E9", "#F59E0B", "#A78BFA", "#22C55E"] %}
   <div class="lineage-grid">
     {% for source in lineage.sources %}
     <div class="lineage-card">
-      <p class="lineage-card-name">{{ source.name }}</p>
+      <div class="lineage-card-header">
+        <span class="lineage-badge" style="background: {{ badge_colors[loop.index0 % badge_colors|length] }}22; color: {{ badge_colors[loop.index0 % badge_colors|length] }};">{{ source.name[0] }}</span>
+        <p class="lineage-card-name">{{ source.name }}</p>
+      </div>
       <p class="lineage-card-url mono">{{ source.url }}</p>
       <p class="lineage-card-note">{{ source.note }}</p>
     </div>

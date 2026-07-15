@@ -19,6 +19,7 @@ THREATFOX_URL = "https://threatfox-api.abuse.ch/api/v1/"
 SHODAN_URL_REGEX = r"https://internetdb\.shodan\.io/.*"
 SPAMHAUS_DROP_URL = "https://www.spamhaus.org/drop/drop.txt"
 SPAMHAUS_EDROP_URL = "https://www.spamhaus.org/drop/edrop.txt"
+OPENPHISH_URL = "https://openphish.com/feed.txt"
 
 BUCKET = "test-threat-report-bucket"
 
@@ -103,6 +104,11 @@ def _mock_all_sources(mock, feodo_up: bool = True):
     mock.get(url__regex=SHODAN_URL_REGEX).mock(return_value=httpx.Response(404))
     mock.get(SPAMHAUS_DROP_URL).mock(return_value=httpx.Response(200, text="; empty\n"))
     mock.get(SPAMHAUS_EDROP_URL).mock(return_value=httpx.Response(200, text="; empty\n"))
+    # OpenPhish (remplace PhishTank) — flux public sans clé, toujours appelé (contrairement à
+    # l'ancien PhishTank qui skip-avant-réseau sans clé en config de test par défaut). Mocké
+    # "feed vide" pour la même raison que Shodan/Spamhaus ci-dessus : le merge est déjà testé
+    # dans test_transform_openphish_merge.py.
+    mock.get(OPENPHISH_URL).mock(return_value=httpx.Response(200, text=""))
 
 
 @pytest.mark.asyncio

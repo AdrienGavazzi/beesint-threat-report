@@ -1,33 +1,37 @@
 from __future__ import annotations
 
+from datetime import datetime
 from urllib.parse import urlparse, urlunparse
 
 import polars as pl
 
-from beesint_threat_report.validate.schemas import PhishTankEntry
+from beesint_threat_report.validate.schemas import OpenPhishEntry
 
 
 def _normalize_url(url: str) -> str:
     """Scheme + host en minuscule, slash de fin retiré sur le path — path/query/fragment
-    inchangés (case-sensitive), cf. CDC : deux URLs qui ne diffèrent que par la casse du host
-    ou un `/` de fin sont la même URL, le reste du path peut légitimement être case-sensitive
-    (certains hébergeurs de phishing s'en servent)."""
+    inchangés (case-sensitive)."""
     parsed = urlparse(url.strip())
     path = parsed.path.rstrip("/")
     return urlunparse(parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower(), path=path))
 
 
-def merge_phishtank_urls(urlhaus_df: pl.DataFrame, phishtank_entries: list[PhishTankEntry]) -> pl.DataFrame:
-    """Fusionne PhishTank dans urlhaus_df par URL normalisée (colonne "sources" étendue, jamais
-    de doublon) — même pattern que transform/threatfox.py::merge_threatfox_ip_iocs pour les IP.
-    Une URL présente dans les deux flux devient UNE entrée avec sources=["urlhaus","phishtank"] ;
-    une URL PhishTank-only devient une nouvelle ligne avec sources=["phishtank"] (le seul cas où
-    une "nouvelle ligne" est correcte, cf. CDC — ce n'est pas un doublon, c'est une URL inédite).
+def merge_openphish_urls(
+    urlhaus_df: pl.DataFrame, openphish_entries: list[OpenPhishEntry], observed_at: datetime
+) -> pl.DataFrame:
+    """Fusionne OpenPhish dans urlhaus_df par URL normalisée (colonne "sources" étendue, jamais
+    de doublon) — même pattern que transform/threatfox.py::merge_threatfox_ip_iocs pour les IP
+    (remplace l'ancien merge_phishtank_urls, PhishTank étant retiré). Une URL présente dans les
+    deux flux devient UNE entrée avec sources=["urlhaus","openphish"] ; une URL OpenPhish-only
+    devient une nouvelle ligne avec sources=["openphish"].
+    `observed_at` (period_end du run) sert de date_added pour les nouvelles lignes : le flux
+    OpenPhish ne fournit aucun horodatage par URL (contrairement à PhishTank submission_time),
+    seule l'observation "vue dans ce run" est disponible.
     Doit tourner AVANT ranking.rank_top_n_urls (cf. CDC : le cut top-N doit voir sources_count)."""
     if urlhaus_df.height and "sources" not in urlhaus_df.columns:
         urlhaus_df = urlhaus_df.with_columns(pl.Series("sources", [["urlhaus"]] * urlhaus_df.height))
 
-    if not phishtank_entries:
+    if not openphish_entries:
         return urlhaus_df
 
     normalized_urlhaus: dict[str, int] = {}
@@ -37,12 +41,12 @@ def merge_phishtank_urls(urlhaus_df: pl.DataFrame, phishtank_entries: list[Phish
 
     matched_indices: set[int] = set()
     new_rows: list[dict] = []
-    seen_phishtank_norm: set[str] = set()
-    for entry in phishtank_entries:
+    seen_openphish_norm: set[str] = set()
+    for entry in openphish_entries:
         norm = _normalize_url(entry.url)
-        if norm in seen_phishtank_norm:
-            continue  # PhishTank feed lui-même dédupliqué par URL normalisée, 1ère occurrence gagne
-        seen_phishtank_norm.add(norm)
+        if norm in seen_openphish_norm:
+            continue  # feed OpenPhish lui-même dédupliqué par URL normalisée, 1ère occurrence gagne
+        seen_openphish_norm.add(norm)
         if norm in normalized_urlhaus:
             matched_indices.add(normalized_urlhaus[norm])
         else:
@@ -50,23 +54,20 @@ def merge_phishtank_urls(urlhaus_df: pl.DataFrame, phishtank_entries: list[Phish
                 {
                     "url": entry.url,
                     "url_status": "online",
-                    "date_added": entry.submission_time,
-                    # PhishTank est un flux phishing exclusivement — pas d'ambiguïté sur "threat"
-                    # contrairement à urlhaus qui couvre plusieurs types de malware_download/phishing.
+                    "date_added": observed_at,
+                    # OpenPhish est un flux phishing exclusivement, comme PhishTank avant lui.
                     "threat": "phishing",
                     "tags": [],
-                    # jamais vue dans un snapshot urlhaus précédent -> "nouvelle" par définition,
-                    # cohérent avec le sens de is_new ailleurs (diffing.py, vs snapshot précédent).
                     "is_new": True,
-                    "sources": ["phishtank"],
+                    "sources": ["openphish"],
                 }
             )
 
     if matched_indices:
         sources_col = urlhaus_df["sources"].to_list()
         for idx in matched_indices:
-            if "phishtank" not in sources_col[idx]:
-                sources_col[idx] = [*sources_col[idx], "phishtank"]
+            if "openphish" not in sources_col[idx]:
+                sources_col[idx] = [*sources_col[idx], "openphish"]
         urlhaus_df = urlhaus_df.with_columns(pl.Series("sources", sources_col))
 
     if not new_rows:
@@ -83,9 +84,6 @@ def merge_phishtank_urls(urlhaus_df: pl.DataFrame, phishtank_entries: list[Phish
         missing_in_new = [c for c in urlhaus_df.columns if c not in new_df.columns]
         for col in missing_in_new:
             new_df = new_df.with_columns(pl.lit(None, dtype=urlhaus_df.schema[col]).alias(col))
-        # dtype restants qui divergent (ex. "tags": [] partout côté new_rows s'infère en
-        # List(Null), incompatible avec le List(Utf8) déjà posé côté urlhaus_df par
-        # validate_urlhaus_frame) — recale new_df sur urlhaus_df, qui porte le schéma déjà validé.
         mismatched = [c for c in new_df.columns if c in urlhaus_df.schema and new_df.schema[c] != urlhaus_df.schema[c]]
         if mismatched:
             new_df = new_df.with_columns([pl.col(c).cast(urlhaus_df.schema[c]) for c in mismatched])
