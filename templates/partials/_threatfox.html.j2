@@ -6,6 +6,7 @@
     <div class="kpi-card">
       <div class="value">{{ threatfox.families_count }}</div>
       <div class="label">Malware families tracked</div>
+      {% if threatfox.sparkline %}<div class="kpi-spark">{{ threatfox.sparkline | safe }}</div>{% endif %}
     </div>
     <div class="kpi-card">
       <div class="value">

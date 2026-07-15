@@ -14,7 +14,17 @@ import polars as pl
 
 from beesint_threat_report.cache.store import cache_key, get_or_fetch
 from beesint_threat_report.config import Settings, load_settings, resolve_base_path, resolve_storage_options
-from beesint_threat_report.extract import feodo, kev, nvd, threatfox, urlhaus
+from beesint_threat_report.extract import (
+    feodo,
+    greynoise,
+    kev,
+    nvd,
+    phishtank,
+    shodan_internetdb,
+    spamhaus_drop,
+    threatfox,
+    urlhaus,
+)
 from beesint_threat_report.load.json_writer import build_report_payload, write_report_json
 from beesint_threat_report.load.parquet_writer import write_historical_parquet
 from beesint_threat_report.load.pdf_context import build_c2_items, build_malicious_url_items, build_pdf_context
@@ -23,6 +33,7 @@ from beesint_threat_report.publish.telemetry import log_run_summary, sentry_brea
 from beesint_threat_report.publish.webhook import publish_status
 from beesint_threat_report.transform import dedup, diffing, geoloc, mttk, ranking
 from beesint_threat_report.transform import kpis as kpis_module
+from beesint_threat_report.transform.phishtank_merge import merge_phishtank_urls
 from beesint_threat_report.transform.threatfox import merge_threatfox_ip_iocs
 from beesint_threat_report.validate.frames import (
     validate_cve_frame,
@@ -33,8 +44,12 @@ from beesint_threat_report.validate.frames import (
 )
 from beesint_threat_report.validate.schemas import (
     FeodoIpRecord,
+    GreyNoiseClassification,
     KevEntry,
     NvdCveRecord,
+    PhishTankEntry,
+    ShodanInternetDbRecord,
+    SpamhausRange,
     ThreatFoxIoc,
     UrlhausEntry,
     validate_batch,
@@ -324,6 +339,124 @@ async def _run_threatfox_source(
         return [], "failed"
 
 
+async def _run_shodan_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    run_id: str,
+    ips: list[str],
+    base_path: str,
+    storage_options: dict | None,
+) -> tuple[dict[str, dict], str]:
+    """N'appelle Shodan InternetDB QUE sur `ips` — déjà réduit au top-N post rank_top_n_ips par
+    l'appelant (run()), jamais sur le feed FeodoTracker complet non trié (CDC §"Data source
+    integration rule")."""
+    if not ips:
+        return {}, "skipped:no_c2_ips"
+    try:
+        key = cache_key("shodan_internetdb", {"ips": sorted(ips)})
+        raw = await get_or_fetch(
+            key,
+            lambda: shodan_internetdb.fetch_internetdb_for_ips(client, ips, settings.shodan_internetdb_base_url),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+        valid, rejected = validate_batch(raw, ShodanInternetDbRecord, source="shodan_internetdb", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "shodan_internetdb", run_id, rejected)
+        return {r.ip: {"ports": r.ports, "vulns": r.vulns} for r in valid}, "ok"
+    except Exception:
+        logger.exception("shodan_internetdb: échec de la source, run continue en dégradé")
+        return {}, "failed"
+
+
+async def _run_spamhaus_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    run_id: str,
+    ips: list[str],
+    base_path: str,
+    storage_options: dict | None,
+) -> tuple[set[str], str]:
+    if not ips:
+        return set(), "skipped:no_c2_ips"
+    try:
+        # clé stable (pas par IP) : DROP+EDROP se téléchargent une seule fois par run, pas une
+        # fois par IP contrairement à Shodan/GreyNoise (cf. extract/spamhaus_drop.py).
+        key = cache_key(
+            "spamhaus_drop", {"drop_url": settings.spamhaus_drop_url, "edrop_url": settings.spamhaus_edrop_url}
+        )
+        raw = await get_or_fetch(
+            key,
+            lambda: spamhaus_drop.fetch_spamhaus_ranges(
+                client, settings.spamhaus_drop_url, settings.spamhaus_edrop_url
+            ),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+        valid, rejected = validate_batch(raw, SpamhausRange, source="spamhaus_drop", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "spamhaus_drop", run_id, rejected)
+        confirmed = spamhaus_drop.match_ips_against_ranges(ips, [r.cidr for r in valid])
+        return confirmed, "ok"
+    except Exception:
+        logger.exception("spamhaus_drop: échec de la source, run continue en dégradé")
+        return set(), "failed"
+
+
+async def _run_greynoise_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    run_id: str,
+    ips: list[str],
+    base_path: str,
+    storage_options: dict | None,
+) -> tuple[dict[str, str], str]:
+    if not settings.greynoise_api_key:
+        return {}, "skipped:no_api_key"
+    if not ips:
+        return {}, "skipped:no_c2_ips"
+    try:
+        key = cache_key("greynoise", {"ips": sorted(ips)})
+        raw = await get_or_fetch(
+            key,
+            lambda: greynoise.fetch_greynoise_classifications(
+                client, ips, settings.greynoise_api_key, settings.greynoise_base_url
+            ),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+        valid, rejected = validate_batch(raw, GreyNoiseClassification, source="greynoise", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "greynoise", run_id, rejected)
+        return {r.ip: r.classification for r in valid}, "ok"
+    except Exception:
+        logger.exception("greynoise: échec de la source, run continue en dégradé")
+        return {}, "failed"
+
+
+async def _run_phishtank_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    run_id: str,
+    period_end,
+    base_path: str,
+    storage_options: dict | None,
+) -> tuple[list[PhishTankEntry], str]:
+    if not settings.phishtank_api_key:
+        return [], "skipped:no_api_key"
+    try:
+        key = cache_key("phishtank", {"period_end_date": period_end.date().isoformat()})
+        raw = await get_or_fetch(
+            key,
+            lambda: phishtank.fetch_phishtank_feed(client, settings.phishtank_api_key, settings.phishtank_base_url),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+        valid, rejected = validate_batch(raw, PhishTankEntry, source="phishtank", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "phishtank", run_id, rejected)
+        return valid, "ok"
+    except Exception:
+        logger.exception("phishtank: échec de la source, run continue en dégradé")
+        return [], "failed"
+
+
 def _build_top_cves(ranked_cve_df: pl.DataFrame, kev_df: pl.DataFrame) -> list[dict]:
     if ranked_cve_df.height == 0:
         return []
@@ -354,15 +487,26 @@ def _build_top_cves(ranked_cve_df: pl.DataFrame, kev_df: pl.DataFrame) -> list[d
     return result
 
 
-def _build_top_ips(ranked_feodo_df: pl.DataFrame, geo: dict[str, dict]) -> list[dict]:
+def _build_top_ips(
+    ranked_feodo_df: pl.DataFrame,
+    geo: dict[str, dict],
+    shodan: dict[str, dict] | None = None,
+    spamhaus_confirmed: set[str] | None = None,
+    greynoise_classifications: dict[str, str] | None = None,
+) -> list[dict]:
     if ranked_feodo_df.height == 0:
         return []
+    shodan = shodan or {}
+    spamhaus_confirmed = spamhaus_confirmed or set()
+    greynoise_classifications = greynoise_classifications or {}
     result = []
     for row in ranked_feodo_df.to_dicts():
-        g = geo.get(row["ip_address"], {})
+        ip = row["ip_address"]
+        g = geo.get(ip, {})
+        s = shodan.get(ip)
         result.append(
             {
-                "ip": row["ip_address"],
+                "ip": ip,
                 "lat": g.get("lat"),
                 "lon": g.get("lon"),
                 "country": g.get("country") or row.get("country"),
@@ -376,6 +520,14 @@ def _build_top_ips(ranked_feodo_df: pl.DataFrame, geo: dict[str, dict]) -> list[
                 "last_seen": row["last_online"].isoformat()
                 if row.get("last_online") is not None and hasattr(row["last_online"], "isoformat")
                 else None,
+                # Enrichissement post rank_top_n_ips (Shodan InternetDB, Spamhaus DROP/EDROP,
+                # GreyNoise) — jamais calculé sur le feed FeodoTracker complet, seulement sur ce
+                # top-N déjà réduit (cf. CDC "Data source integration rule").
+                "open_ports": s.get("ports", []) if s else [],
+                "known_cves": s.get("vulns", []) if s else [],
+                "shodan_has_data": s is not None,
+                "confirmed_by_spamhaus": ip in spamhaus_confirmed,
+                "greynoise_classification": greynoise_classifications.get(ip),
             }
         )
     return result
@@ -432,9 +584,20 @@ async def run(force_refresh: bool = False) -> dict:
         sources_status["threatfox"] = threatfox_status
         sentry_breadcrumb_run_step("extract_threatfox", threatfox_status)
 
+        phishtank_entries, phishtank_status = await _run_phishtank_source(
+            client, settings, run_id, period_end, base_path, storage_options
+        )
+        sources_status["phishtank"] = phishtank_status
+        sentry_breadcrumb_run_step("extract_phishtank", phishtank_status)
+
         ip_frame = merge_threatfox_ip_iocs(feodo_df, threatfox_iocs)
         if ip_frame.height:
             ip_frame = validate_ip_threat_frame(ip_frame)
+
+        # Merge PhishTank AVANT rank_top_n_urls (cf. CDC "Data source integration rule") — les
+        # entrées confirmées par 2 sources doivent pouvoir peser sur le cut top-N, pas seulement
+        # sur l'affichage d'un item déjà retenu.
+        url_frame = merge_phishtank_urls(urlhaus_df, phishtank_entries)
 
         joined = (
             mttk.join_nvd_kev(cve_df, kev_df)
@@ -447,14 +610,16 @@ async def run(force_refresh: bool = False) -> dict:
 
         ranked_cves = ranking.rank_top_n_cves(cve_df, n=10) if cve_df.height else cve_df
         ranked_ips = ranking.rank_top_n_ips(ip_frame, n=10) if ip_frame.height else ip_frame
-        ranked_urls = ranking.rank_top_n_urls(urlhaus_df, n=10) if urlhaus_df.height else urlhaus_df
+        ranked_urls = ranking.rank_top_n_urls(url_frame, n=10) if url_frame.height else url_frame
 
         geo: dict[str, dict] = {}
+        ip_list: list[str] = []
         if ranked_ips.height:
             ip_records = [
                 FeodoIpRecord(**row) for row in ranked_ips.select(list(_FEODO_EMPTY_SCHEMA.keys())).to_dicts()
             ]
-            geo_key = cache_key("geoloc", {"ips": sorted(r.ip_address for r in ip_records)})
+            ip_list = [r.ip_address for r in ip_records]
+            geo_key = cache_key("geoloc", {"ips": sorted(ip_list)})
             geo_raw = await get_or_fetch(
                 geo_key,
                 lambda: _fetch_geo_wrapped(client, ip_records, settings.ip_api_batch_url),
@@ -463,13 +628,35 @@ async def run(force_refresh: bool = False) -> dict:
             )
             geo = geo_raw[0] if geo_raw else {}
 
+        # Enrichissement C2 (Shodan InternetDB, Spamhaus DROP/EDROP, GreyNoise) — uniquement sur
+        # ip_list, déjà le top-N post rank_top_n_ips ci-dessus, jamais le feed complet (cf. CDC
+        # "Data source integration rule"). Toujours appelés (même avec ip_list=[]) pour que
+        # sources_status porte une entrée par source quel que soit le cas.
+        shodan_data, shodan_status = await _run_shodan_source(
+            client, settings, run_id, ip_list, base_path, storage_options
+        )
+        sources_status["shodan_internetdb"] = shodan_status
+        sentry_breadcrumb_run_step("extract_shodan_internetdb", shodan_status)
+
+        spamhaus_confirmed, spamhaus_status = await _run_spamhaus_source(
+            client, settings, run_id, ip_list, base_path, storage_options
+        )
+        sources_status["spamhaus_drop"] = spamhaus_status
+        sentry_breadcrumb_run_step("extract_spamhaus_drop", spamhaus_status)
+
+        greynoise_data, greynoise_status = await _run_greynoise_source(
+            client, settings, run_id, ip_list, base_path, storage_options
+        )
+        sources_status["greynoise"] = greynoise_status
+        sentry_breadcrumb_run_step("extract_greynoise", greynoise_status)
+
         previous_kpis = _kpis_from_manifest(manifest)
         report_kpis = kpis_module.compute_kpis(
             cve_df, kev_df, ip_frame, urlhaus_df, mean_time_to_kev, previous_kpis, cve_high_count, threatfox_iocs
         )
 
         top_cves = _build_top_cves(ranked_cves, kev_df)
-        top_ips = _build_top_ips(ranked_ips, geo)
+        top_ips = _build_top_ips(ranked_ips, geo, shodan_data, spamhaus_confirmed, greynoise_data)
         c2_items = build_c2_items(top_ips)
         malicious_url_items = build_malicious_url_items(ranked_urls)
 
@@ -559,6 +746,8 @@ async def run(force_refresh: bool = False) -> dict:
             top_ips=top_ips,
             pipeline_duration_seconds=pipeline_duration_seconds,
             sources_status=sources_status,
+            c2_items=c2_items,
+            malicious_url_items=malicious_url_items,
             is_cold_start=is_cold_start,
         )
 

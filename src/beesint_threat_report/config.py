@@ -27,6 +27,13 @@ class Settings:
     ip_api_batch_url: str = "http://ip-api.com/batch"
     threatfox_auth_key: str | None = None  # optionnel (Lot 7) — étape sautée si absente
     threatfox_base_url: str = "https://threatfox-api.abuse.ch/api/v1/"
+    shodan_internetdb_base_url: str = "https://internetdb.shodan.io"  # gratuit, sans clé
+    spamhaus_drop_url: str = "https://www.spamhaus.org/drop/drop.txt"
+    spamhaus_edrop_url: str = "https://www.spamhaus.org/drop/edrop.txt"
+    greynoise_api_key: str | None = None  # optionnel — étape sautée si absente
+    greynoise_base_url: str = "https://api.greynoise.io/v3/community"
+    phishtank_api_key: str | None = None  # optionnel — étape sautée si absente
+    phishtank_base_url: str = "http://data.phishtank.com/data"
 
     # Stockage
     storage_backend: str = "local"  # "local" | "s3"
@@ -78,6 +85,8 @@ def load_settings() -> Settings:
         max_results_kev=_get_int("MAX_RESULTS_KEV", 5000),
         nvd_api_key=os.environ.get("NVD_API_KEY") or None,
         threatfox_auth_key=os.environ.get("THREATFOX_AUTH_KEY") or None,
+        greynoise_api_key=os.environ.get("GREYNOISE_API_KEY") or None,
+        phishtank_api_key=os.environ.get("PHISHTANK_API_KEY") or None,
         storage_backend=storage_backend,
         s3_bucket=os.environ.get("ORACLE_S3_BUCKET") or None,
         s3_endpoint_url=os.environ.get("ORACLE_S3_ENDPOINT") or None,

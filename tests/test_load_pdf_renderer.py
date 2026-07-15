@@ -102,10 +102,16 @@ def minimal_context() -> dict:
                     "malware_family": "Heodo",
                     "first_seen": "2026-05-01",
                     "last_online": "2026-06-05",
+                    "confirmed_by_spamhaus": True,
+                    "greynoise_classification": "malicious",
                 }
             ],
             "sparkline": None,
             "map_svg": None,
+            "malware_family_breakdown": [{"malware_family": "Heodo", "count": 1, "pct_of_total": 100.0}],
+            "top_asn": [{"asn": "AS64500 EXAMPLE-AS", "count": 1, "pct_of_total": 100.0}],
+            "open_ports_breakdown": [{"port": 443, "count": 1, "pct_of_total": 100.0}],
+            "cross_confirmed": {"confirmed": 1, "total": 1},
         },
         "malicious_urls": {
             "online_count": 2,
@@ -116,11 +122,13 @@ def minimal_context() -> dict:
                     "threat_type": "malware_download",
                     "tags": ["exe", "elf"],
                     "date_added": "2026-06-04",
+                    "sources": ["urlhaus", "phishtank"],
                 }
             ],
             "sparkline": None,
+            "threat_type_breakdown": [{"threat_type": "malware_download", "count": 1, "pct_of_total": 100.0}],
         },
-        "threatfox": {"enabled": False, "families_count": 0, "families_trend_pct": None},
+        "threatfox": {"enabled": False, "families_count": 0, "families_trend_pct": None, "sparkline": None},
         "geo": {
             "top_countries": [
                 {"country_name": "United States", "country_code": "US", "count": 3, "pct_of_total": 60.0},
@@ -191,13 +199,17 @@ def test_render_pdf_all_section_titles_present(tmp_path):
         assert title.upper() in full_text_upper, f"section title missing from rendered PDF: {title!r}"
 
 
-def test_render_pdf_abuse_ch_attribution_on_every_page(tmp_path):
+def test_render_pdf_abuse_ch_attribution_on_every_non_cover_page(tmp_path):
+    # Cover page (@page :first) intentionally has no recurring footer — margin is 0 for a
+    # full-bleed cover, and the @bottom-* content is explicitly cleared there (report.css) so it
+    # doesn't paint flush against the physical edge. The attribution still must appear on every
+    # other page, which is what this asserts starting from page 2.
     output_path = tmp_path / "report.pdf"
     render_pdf(minimal_context(), output_path)
 
     reader = PdfReader(str(output_path))
-    assert len(reader.pages) >= 1
-    for index, page in enumerate(reader.pages):
+    assert len(reader.pages) >= 2
+    for index, page in enumerate(reader.pages[1:], start=1):
         text = page.extract_text() or ""
         assert "Data kindly provided by abuse.ch" in text, f"missing abuse.ch attribution on page {index}"
 

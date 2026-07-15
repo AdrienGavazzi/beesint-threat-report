@@ -34,13 +34,20 @@
     <tbody>
       {% for item in malicious_urls['items'] %}
       <tr>
-        <td class="mono">{{ item.url }}</td>
+        <td class="mono">{{ item.url }}{% if item.sources and item.sources | length > 1 %} <span class="badge badge-neutral">VERIFIED x{{ item.sources | length }}</span>{% endif %}</td>
         <td>{{ item.threat_type if item.threat_type else "N/A" }}</td>
         <td>{{ item.tags | join(", ") if item.tags else "-" }}</td>
-        <td>{{ item.date_added }}</td>
+        <td>{{ item.date_added | fmt_date_short }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  {% endif %}
+
+  {% if malicious_urls.threat_type_breakdown %}
+  <p class="chart-card-title" style="margin-top: 12px;">Threat type breakdown</p>
+  <div class="chip-list">
+    {% for item in malicious_urls.threat_type_breakdown %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.threat_type }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
+  </div>
   {% endif %}
 </section>

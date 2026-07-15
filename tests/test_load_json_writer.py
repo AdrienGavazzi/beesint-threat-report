@@ -21,6 +21,46 @@ def _kpis() -> ReportKpis:
     )
 
 
+def _c2_items() -> list[dict]:
+    return [
+        {
+            "ip_address": "1.1.1.1",
+            "malware_family": "Emotet",
+            "asn": "AS12345",
+            "confirmed_by_spamhaus": True,
+            "greynoise_classification": "malicious",
+            "shodan_has_data": True,
+        },
+        {
+            "ip_address": "2.2.2.2",
+            "malware_family": "Emotet",
+            "asn": "AS12345",
+            "confirmed_by_spamhaus": False,
+            "greynoise_classification": None,
+            "shodan_has_data": False,
+        },
+    ]
+
+
+def _malicious_url_items() -> list[dict]:
+    return [
+        {
+            "url": "http://evil.example/a",
+            "threat_type": "phishing",
+            "tags": [],
+            "date_added": None,
+            "sources": ["urlhaus", "phishtank"],
+        },
+        {
+            "url": "http://evil.example/b",
+            "threat_type": "phishing",
+            "tags": [],
+            "date_added": None,
+            "sources": ["urlhaus"],
+        },
+    ]
+
+
 def test_build_report_payload_is_json_serializable_and_matches_contract():
     payload = build_report_payload(
         run_id="run-1",
@@ -31,7 +71,9 @@ def test_build_report_payload_is_json_serializable_and_matches_contract():
         top_cves=[{"cve_id": "CVE-2026-1"}],
         top_ips=[{"ip": "1.1.1.1"}],
         pipeline_duration_seconds=12.3,
-        sources_status={"nvd": "ok", "kev": "ok", "feodo": "ok", "urlhaus": "ok"},
+        sources_status={"nvd": "ok", "kev": "ok", "feodo": "ok", "urlhaus": "ok", "spamhaus_drop": "ok"},
+        c2_items=_c2_items(),
+        malicious_url_items=_malicious_url_items(),
     )
     json.dumps(payload)  # ne doit pas lever
     assert payload["run_id"] == "run-1"
@@ -39,6 +81,13 @@ def test_build_report_payload_is_json_serializable_and_matches_contract():
     assert payload["kpis"]["kev_ransomware_flag"] is True
     assert payload["cwe_breakdown"] == [{"cwe": "CWE-79", "count": 2}]
     assert payload["schema_version"] == 1
+    assert payload["malicious_urls"] == _malicious_url_items()
+    assert payload["c2_malware_family_breakdown"] == [{"malware_family": "Emotet", "count": 2, "pct_of_total": 100.0}]
+    assert payload["c2_top_asn"] == [{"asn": "AS12345", "count": 2, "pct_of_total": 100.0}]
+    assert payload["c2_cross_confirmed"] == {"confirmed": 1, "total": 2}
+    assert payload["malicious_url_threat_type_breakdown"] == [
+        {"threat_type": "phishing", "count": 2, "pct_of_total": 100.0}
+    ]
 
 
 def test_write_report_json_correct_path(tmp_path):
@@ -52,6 +101,8 @@ def test_write_report_json_correct_path(tmp_path):
         top_ips=[],
         pipeline_duration_seconds=1.0,
         sources_status={},
+        c2_items=[],
+        malicious_url_items=[],
     )
     written = write_report_json(
         payload,

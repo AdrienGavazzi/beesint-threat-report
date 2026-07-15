@@ -52,7 +52,7 @@
         <td class="mono">{{ item.cve_id }}</td>
         <td>{{ item.vendor_project if item.vendor_project else "N/A" }}</td>
         <td>{{ item.product if item.product else "N/A" }}</td>
-        <td>{{ item.date_added }}</td>
+        <td>{{ item.date_added | fmt_date_short }}</td>
         <td>
           {% if item.ransomware_known_use %}
             <span class="badge badge-error">Known</span>

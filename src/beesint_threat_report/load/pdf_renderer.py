@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import jinja2
 
 _TEMPLATE_DIR = Path(__file__).resolve().parents[3] / "templates"
+
+
+def _fmt_date_short(value: object) -> object:
+    """Template values arriving here are ISO strings (`.isoformat()`'d upstream in
+    orchestrate.py), not datetime objects — parse-then-format, never assume a datetime."""
+    if hasattr(value, "strftime"):
+        return value.strftime("%d %b %Y")
+    if isinstance(value, str) and value:
+        return datetime.fromisoformat(value).strftime("%d %b %Y")
+    return value
 
 
 def render_pdf(context: dict, output_path: Path) -> Path:
@@ -17,6 +28,7 @@ def render_pdf(context: dict, output_path: Path) -> Path:
         loader=jinja2.FileSystemLoader(str(_TEMPLATE_DIR)),
         undefined=jinja2.StrictUndefined,
     )
+    env.filters["fmt_date_short"] = _fmt_date_short
     template = env.get_template("report.html.j2")
     html = template.render(**context)
 

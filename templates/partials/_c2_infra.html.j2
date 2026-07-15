@@ -19,6 +19,12 @@
       </div>
       <div class="label">Trend vs previous run</div>
     </div>
+    {% if c2.cross_confirmed %}
+    <div class="kpi-card">
+      <div class="value">{{ c2.cross_confirmed.confirmed }}/{{ c2.cross_confirmed.total }}</div>
+      <div class="label">Cross-confirmed (2+ feeds)</div>
+    </div>
+    {% endif %}
   </div>
 
   {% if c2.map_svg %}
@@ -28,7 +34,7 @@
   {% endif %}
 
   {% if c2['items'] %}
-  <table>
+  <table class="c2-table">
     <thead>
       <tr>
         <th class="mono">IP address</th>
@@ -37,6 +43,7 @@
         <th>Malware family</th>
         <th>First seen</th>
         <th>Last online</th>
+        <th>Signals</th>
       </tr>
     </thead>
     <tbody>
@@ -46,11 +53,36 @@
         <td>{{ item.country if item.country else "N/A" }}</td>
         <td class="mono">{{ item.asn if item.asn else "N/A" }}</td>
         <td>{{ item.malware_family if item.malware_family else "N/A" }}</td>
-        <td>{{ item.first_seen if item.first_seen else "N/A" }}</td>
-        <td>{{ item.last_online if item.last_online else "N/A" }}</td>
+        <td>{{ item.first_seen | fmt_date_short if item.first_seen else "N/A" }}</td>
+        <td>{{ item.last_online | fmt_date_short if item.last_online else "N/A" }}</td>
+        <td>
+          <span class="source-dot {{ 'source-dot-ok' if item.confirmed_by_spamhaus else 'source-dot-off' }}" title="Spamhaus DROP/EDROP"></span>
+          {% if item.greynoise_classification %}<span class="badge {{ 'badge-error' if item.greynoise_classification == 'malicious' else 'badge-neutral' }}">{{ item.greynoise_classification }}</span>{% else %}<span class="badge badge-neutral">N/A</span>{% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  {% endif %}
+
+  {% if c2.malware_family_breakdown %}
+  <p class="chart-card-title" style="margin-top: 12px;">Malware family breakdown</p>
+  <div class="chip-list">
+    {% for item in c2.malware_family_breakdown %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.malware_family }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if c2.top_asn %}
+  <p class="chart-card-title" style="margin-top: 12px;">Top ASN / hosting</p>
+  <div class="chip-list">
+    {% for item in c2.top_asn %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.asn }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if c2.open_ports_breakdown %}
+  <p class="chart-card-title" style="margin-top: 12px;">Top open ports (Shodan InternetDB)</p>
+  <div class="chip-list">
+    {% for item in c2.open_ports_breakdown %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.port }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
+  </div>
   {% endif %}
 </section>

@@ -5,8 +5,12 @@ from pydantic import ValidationError
 
 from beesint_threat_report.validate.schemas import (
     FeodoIpRecord,
+    GreyNoiseClassification,
     KevEntry,
     NvdCveRecord,
+    PhishTankEntry,
+    ShodanInternetDbRecord,
+    SpamhausRange,
     UrlhausEntry,
     validate_batch,
 )
@@ -147,3 +151,54 @@ def test_validate_batch_mixed_valid_invalid_never_raises():
     assert len(valid) == 1
     assert len(rejected) == 1
     assert rejected[0]["cve_id"] == "NOT-VALID"
+
+
+def test_shodan_internetdb_record_defaults_empty_lists():
+    record = ShodanInternetDbRecord(ip="1.1.1.1")
+    assert record.ports == []
+    assert record.vulns == []
+
+
+def test_shodan_internetdb_record_malformed_ip_raises():
+    with pytest.raises(ValidationError):
+        ShodanInternetDbRecord(ip="not-an-ip", ports=[443])
+
+
+def test_spamhaus_range_valid_cidr():
+    record = SpamhausRange(cidr="1.2.3.0/24")
+    assert record.cidr == "1.2.3.0/24"
+
+
+def test_spamhaus_range_malformed_cidr_raises():
+    with pytest.raises(ValidationError):
+        SpamhausRange(cidr="not-a-cidr")
+
+
+def test_greynoise_classification_keeps_raw_value():
+    record = GreyNoiseClassification(ip="1.1.1.1", classification="benign")
+    assert record.classification == "benign"  # jamais remappé, cf. extract/greynoise.py
+
+
+def test_phishtank_entry_valid():
+    record = PhishTankEntry(
+        phish_id="123",
+        url="http://evil.example/login",
+        submission_time=datetime(2026, 7, 1, tzinfo=UTC),
+        verified=True,
+        online=True,
+        target="Example Bank",
+    )
+    assert record.phish_id == "123"
+    assert record.submission_time.tzinfo is not None
+
+
+def test_phishtank_entry_naive_datetime_forced_utc():
+    record = PhishTankEntry(
+        phish_id="123",
+        url="http://evil.example/login",
+        submission_time=datetime(2026, 7, 1),
+        verified=False,
+        online=False,
+    )
+    assert record.submission_time.tzinfo == UTC
+    assert record.target == ""

@@ -16,6 +16,9 @@ FEODO_URL = "https://feodotracker.abuse.ch/downloads/ipblocklist.json"
 URLHAUS_URL = "https://urlhaus.abuse.ch/downloads/json_online/"
 IPAPI_URL = "http://ip-api.com/batch"
 THREATFOX_URL = "https://threatfox-api.abuse.ch/api/v1/"
+SHODAN_URL_REGEX = r"https://internetdb\.shodan\.io/.*"
+SPAMHAUS_DROP_URL = "https://www.spamhaus.org/drop/drop.txt"
+SPAMHAUS_EDROP_URL = "https://www.spamhaus.org/drop/edrop.txt"
 
 BUCKET = "test-threat-report-bucket"
 
@@ -92,6 +95,14 @@ def _mock_all_sources(mock, feodo_up: bool = True):
         mock.get(FEODO_URL).mock(side_effect=httpx.ConnectError("network down"))
     mock.get(URLHAUS_URL).mock(return_value=httpx.Response(200, json=load_fixture("urlhaus_online.json")))
     mock.post(IPAPI_URL).mock(return_value=httpx.Response(200, json=load_fixture("ip_api_batch_response.json")))
+    # Shodan InternetDB (1 requête par IP top-N) et Spamhaus DROP/EDROP (1 requête chacun) —
+    # nouvelles sources d'enrichissement C2 toujours appelées sans clé dès que ip_list est non
+    # vide. Mockées en "pas de données" : leur merge/format est déjà testé dans
+    # test_pdf_context.py / test_orchestrate_new_sources.py, ce fichier ne teste que
+    # l'orchestration S3/statuts qui ne doit pas changer de comportement à cause d'elles.
+    mock.get(url__regex=SHODAN_URL_REGEX).mock(return_value=httpx.Response(404))
+    mock.get(SPAMHAUS_DROP_URL).mock(return_value=httpx.Response(200, text="; empty\n"))
+    mock.get(SPAMHAUS_EDROP_URL).mock(return_value=httpx.Response(200, text="; empty\n"))
 
 
 @pytest.mark.asyncio

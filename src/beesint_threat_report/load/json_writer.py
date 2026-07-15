@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from beesint_threat_report.load.pdf_context import _TOP_N_COUNTRIES, _c2_cross_confirmed, _chip_breakdown
 from beesint_threat_report.transform.kpis import ReportKpis
 
 SCHEMA_VERSION = 1
@@ -19,6 +20,8 @@ def build_report_payload(
     top_ips: list[dict],
     pipeline_duration_seconds: float,
     sources_status: dict[str, str],
+    c2_items: list[dict],
+    malicious_url_items: list[dict],
     is_cold_start: bool = False,
 ) -> dict:
     return {
@@ -46,9 +49,18 @@ def build_report_payload(
         },
         "cves": top_cves,
         "malicious_ips": top_ips,
+        "malicious_urls": malicious_url_items,
         "top_countries": kpis.top_countries,
         "top_vendors": kpis.top_vendors,
         "cwe_breakdown": [{"cwe": row["cwe_id"], "count": row["count"]} for row in kpis.cwe_distribution],
+        # Mêmes helpers que pdf_context.py::build_pdf_context — mêmes chiffres affichés côté
+        # PDF et côté JSON public, aucune logique d'agrégation dupliquée (cf. CDC json_writer.py).
+        "c2_malware_family_breakdown": _chip_breakdown(c2_items, "malware_family", "malware_family", _TOP_N_COUNTRIES),
+        "c2_top_asn": _chip_breakdown(c2_items, "asn", "asn", _TOP_N_COUNTRIES),
+        "c2_cross_confirmed": _c2_cross_confirmed(c2_items, sources_status),
+        "malicious_url_threat_type_breakdown": _chip_breakdown(
+            malicious_url_items, "threat_type", "threat_type", _TOP_N_COUNTRIES
+        ),
         "pipeline_duration_seconds": pipeline_duration_seconds,
         "generated_at": datetime.now(UTC).isoformat(),
         "schema_version": SCHEMA_VERSION,

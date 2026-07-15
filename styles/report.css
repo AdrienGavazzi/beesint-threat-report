@@ -102,6 +102,22 @@
   }
 }
 
+/* Page de garde sans marge : .cover gère son propre padding interne (voir plus bas) pour
+   couvrir tout le format A4 physique, effet "pleine page" plutôt qu'un cadre inséré dans les
+   marges standard du reste du rapport. Non re-testé empiriquement au même niveau que le reste
+   des règles @page de ce fichier (cf. CDC §"WeasyPrint 62.3 — empirically verified limits"). */
+@page :first {
+  margin: 0;
+  background: var(--color-bg-base);
+  /* margin:0 alone doesn't suppress the recurring @bottom-* margin-box content inherited from
+     the base @page rule above — WeasyPrint still paints it flush against the physical edge with
+     no margin to sit inside. Cover page has its own run-id/period footer baked into .cover,
+     the recurring footer would just double up flush against the bleed. */
+  @bottom-left { content: none; }
+  @bottom-right { content: none; }
+  @bottom-center { content: none; }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -166,13 +182,26 @@ h1, h2, h3 {
   color: var(--color-text-muted);
 }
 
-/* Page de garde */
+/* Page de garde — @page :first n'a plus de marge (ci-dessus), .cover recrée le même inset via
+   padding (box-sizing: border-box global, donc height:20cm reste inchangée) plutôt que de
+   laisser le contenu toucher le bord physique de la page.
+   .cover lui-même N'EST PAS flex : un enfant `position:absolute` (.run-id ci-dessous) d'un
+   parent `display:flex` ne se rend pas du tout sur WeasyPrint 62.3 (vérifié empiriquement,
+   texte totalement absent du PDF, y compris avec `position:relative` sur le flex parent et
+   `margin-top:auto` comme alternative — les deux confirmés cassés). Le centrage vertical vit
+   dans .cover-inner à la place, .run-id reste un sibling direct de .cover-inner sous .cover
+   (non-flex, position:relative) pour rester positionnable en absolu. */
 .cover {
+  position: relative;
   height: 20cm;
+  padding: 2.2cm 1.8cm 2.6cm 1.8cm;
+  background: radial-gradient(circle at 20% 25%, rgba(14, 165, 233, 0.10) 0%, rgba(9, 10, 15, 0) 55%);
+}
+.cover-inner {
+  height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  background: radial-gradient(circle at 20% 25%, rgba(14, 165, 233, 0.10) 0%, rgba(9, 10, 15, 0) 55%);
 }
 .cover-tagline {
   font-family: var(--font-sans);
@@ -208,6 +237,10 @@ h1, h2, h3 {
   margin-top: 10px;
 }
 .cover .run-id {
+  /* Offsets inchangés : .cover.padding (ci-dessus) reproduit exactement l'ancienne marge de
+     @page (2.2/1.8/2.6/1.8cm), donc ces offsets depuis le coin de .cover (nouveau containing
+     block via position:relative) retombent au même endroit visuel qu'avant, quand ce bloc
+     était positionné depuis la page elle-même. */
   position: absolute;
   bottom: 1.4cm;
   left: 1.8cm;
@@ -297,6 +330,20 @@ tbody tr:nth-child(even) {
   background: var(--color-bg-surface);
 }
 
+/* Largeurs de colonnes de la table C2 — dates raccourcies via `| fmt_date_short` ("05 Mar
+   2026" au lieu d'un ISO complet), donc Malware family / ASN peuvent récupérer l'espace libéré
+   plutôt que de laisser les 6 colonnes se partager l'espace à parts égales par défaut. */
+.c2-table th:nth-child(1), .c2-table td:nth-child(1) { width: 13%; }
+.c2-table th:nth-child(2), .c2-table td:nth-child(2) { width: 10%; }
+.c2-table th:nth-child(3), .c2-table td:nth-child(3) { width: 16%; }
+.c2-table th:nth-child(4), .c2-table td:nth-child(4) { width: 20%; }
+.c2-table th:nth-child(5), .c2-table td:nth-child(5) { width: 13%; }
+.c2-table th:nth-child(6), .c2-table td:nth-child(6) { width: 13%; }
+/* 7e colonne "Signals" (Spamhaus dot + badge GreyNoise, lot enrichissement C2) — les 6
+   premières colonnes ont chacune perdu 1-4pt pour lui faire de la place, cf. commentaire
+   ci-dessus sur fmt_date_short qui libère déjà de l'espace sur les colonnes de date. */
+.c2-table th:nth-child(7), .c2-table td:nth-child(7) { width: 15%; }
+
 .badge {
   /* font-weight explicite : un badge dans .kpi-card .value (font-weight:700) hériterait ce
      700 en JetBrains Mono (non embarqué en 700) -> fallback système, même raison que les
@@ -361,6 +408,12 @@ tbody tr:nth-child(even) {
 .source-ok .source-dot { background: var(--color-success); }
 .source-failed .source-dot { background: var(--color-error); }
 .source-skipped .source-dot { background: var(--color-text-muted); }
+
+/* Variantes directes (pas de wrapper .source-badge) pour le dot compact de la colonne
+   "Signals" du tableau C2 — même dimension que .source-dot ci-dessus, couleur posée
+   directement plutôt que via un parent .source-ok/.source-skipped. */
+.source-dot-ok { background: var(--color-success); }
+.source-dot-off { background: var(--color-text-muted); }
 
 /* Chips pour top pays / top vendors — remplace un bar-chart CSS (supprimé) qui rendait mal
    sur ce type de données : la quasi-totalité des entrées ont count=1, un bar-chart affichait
@@ -451,16 +504,38 @@ tbody tr:nth-child(even) {
   padding: 10px;
 }
 
-.lineage-sources {
-  font-size: 9px;
-  color: var(--color-text-muted);
+/* Cartes de source pour la section lineage — même mécanique flexbox que .kpi-grid/.chart-row
+   ci-dessus (pas de repeat(auto-fit,...), non supporté par WeasyPrint). Remplace l'ancienne
+   <ul class="lineage-sources"> texte brut "nom - url - note". */
+.lineage-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
 }
-.lineage-sources li {
-  margin-bottom: 3px;
+.lineage-card {
+  flex: 1 1 200px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  padding: 10px 12px;
 }
-.lineage-sources strong {
-  /* <strong> = bold (700) UA par défaut, absent en Plus Jakarta Sans (400/500/600 seulement
-     embarqués) -> fallback système sans ce reset, même raison que la règle th ci-dessus. */
+.lineage-card-name {
+  /* font-weight explicite : même raison que .badge/.section-title/th ci-dessus (700 UA absent
+     des webfonts embarqués). */
   font-weight: 600;
   color: var(--color-text-body);
+  margin: 0 0 4px 0;
+}
+.lineage-card-url {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  color: var(--color-text-muted);
+  margin: 0 0 4px 0;
+  word-break: break-all;
+}
+.lineage-card-note {
+  font-size: 8.5px;
+  color: var(--color-text-muted);
+  margin: 0;
 }

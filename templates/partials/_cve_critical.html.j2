@@ -63,7 +63,7 @@
         <td class="mono">{{ item.cve_id }}</td>
         <td>{{ item.description }}</td>
         <td class="mono">{{ item.cvss_score if item.cvss_score is not none else "N/A" }}</td>
-        <td>{{ item.published_date }}</td>
+        <td>{{ item.published_date | fmt_date_short }}</td>
         <td>{{ item.vendor if item.vendor else "N/A" }}</td>
       </tr>
       {% endfor %}

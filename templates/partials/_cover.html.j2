@@ -1,8 +1,10 @@
 <section class="cover">
-  <img class="cover-logo" src="assets/bee_yellow_only.png" alt="">
-  <p class="hero-label">Weekly Cyber Threat Intelligence</p>
-  <h1>BeeSINT Threat Report</h1>
-  <p class="cover-tagline">Automated pipeline tracking critical CVEs, actively exploited vulnerabilities, active C2 infrastructure and malicious URLs — every week, without manual intervention.</p>
-  <p class="period">{{ report.period_start }} - {{ report.period_end }}</p>
+  <div class="cover-inner">
+    <img class="cover-logo" src="assets/bee_yellow_only.png" alt="">
+    <p class="hero-label">Weekly Cyber Threat Intelligence</p>
+    <h1>BeeSINT Threat Report</h1>
+    <p class="cover-tagline">Automated pipeline tracking critical CVEs, actively exploited vulnerabilities, active C2 infrastructure and malicious URLs — every week, without manual intervention.</p>
+    <p class="period">{{ report.period_start }} - {{ report.period_end }}</p>
+  </div>
   <p class="run-id">Generated {{ report.generated_at }} - run {{ report.run_id }}</p>
 </section>

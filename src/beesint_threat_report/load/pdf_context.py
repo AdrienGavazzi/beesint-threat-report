@@ -7,6 +7,7 @@ import polars as pl
 
 from beesint_threat_report.load.countries import country_name
 from beesint_threat_report.load.cwe_names import cwe_name
+from beesint_threat_report.load.world_map_path import WORLD_LANDMASS_PATH_D
 from beesint_threat_report.transform.kpis import ReportKpis
 
 _TOP_N_COUNTRIES = 10
@@ -43,6 +44,26 @@ _SOURCES = [
         "url": "https://ip-api.com/",
         "note": "Géolocalisation IP, usage non-commercial.",
     },
+    {
+        "name": "Shodan InternetDB",
+        "url": "https://internetdb.shodan.io/",
+        "note": "Domaine public — gratuit, sans clé API.",
+    },
+    {
+        "name": "Spamhaus DROP/EDROP",
+        "url": "https://www.spamhaus.org/drop/",
+        "note": "Listes CIDR publiques — usage non-commercial.",
+    },
+    {
+        "name": "GreyNoise Community API",
+        "url": "https://viz.greynoise.io/",
+        "note": "Tier gratuit, clé API requise — classification IP.",
+    },
+    {
+        "name": "PhishTank",
+        "url": "https://www.phishtank.com/",
+        "note": "Opéré par Cisco Talos — clé API requise pour le flux bulk.",
+    },
 ]
 
 
@@ -66,6 +87,12 @@ _HISTOGRAM_MIN_ITEMS = 6  # sous ce seuil, un histogramme par bin serait aussi p
 # entrer en collision avec la sémantique "statut" déjà portée par ces deux couleurs ailleurs.
 _LINE_SERIES_COLORS = {"cve": "#0EA5E9", "kev": "#F59E0B", "c2": "#A78BFA"}
 _LINE_MIN_POINTS = 2
+
+# "Poignée" d'IP avec des ports Shodan avant d'afficher le chip-list — sur un pool d'au plus 10
+# IP top-N (rank_top_n_ips), exiger _HISTOGRAM_MIN_ITEMS (6) serait quasi jamais atteint vu la
+# couverture partielle de Shodan InternetDB (tier gratuit, IP non indexées fréquentes). 3 reste
+# "plusieurs IP réelles", pas un chiffre isolé (même discipline que _HISTOGRAM_MIN_ITEMS).
+_PORT_BREAKDOWN_MIN_IPS = 3
 
 
 def _fmt_date(value: datetime) -> str:
@@ -123,9 +150,19 @@ def _build_world_map_svg(items: list[dict], width: int = 480, height: int = 220)
             f'stroke="{_MAP_DOT_COLOR}" stroke-opacity="0.25" stroke-width="5"/>'
         )
 
+    # fill volontairement _GRID_COLOR (pas --color-bg-elevated) : le SVG est affiché dans
+    # .map-frame dont le fond EST déjà --color-bg-elevated — un fill de la même couleur s'y
+    # fond entièrement quel que soit le fill-opacity (vérifié empiriquement, silhouette
+    # invisible au rendu). _GRID_COLOR est plus clair que le fond du cadre, donc visible dessus.
+    landmass = (
+        f'<path d="{WORLD_LANDMASS_PATH_D}" fill="{_GRID_COLOR}" fill-opacity="0.45" '
+        f'stroke="{_GRID_COLOR}" stroke-width="0.5"/>'
+    )
+
     return (
         f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="world-map">'
         f'<rect x="0" y="0" width="{width}" height="{height}" fill="none" stroke="{_GRID_COLOR}" stroke-width="1"/>'
+        + landmass
         + "".join(graticule)
         + "".join(dots)
         + "</svg>"
@@ -244,7 +281,12 @@ def _build_history_line_chart_svg(
     return f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="history-line-chart">{lines}</svg>'
 
 
-def _build_executive_summary(kpis: ReportKpis, is_cold_start: bool, sources_status: dict[str, str]) -> str:
+def _build_executive_summary(
+    kpis: ReportKpis,
+    is_cold_start: bool,
+    sources_status: dict[str, str],
+    c2_cross_confirmed: dict | None = None,
+) -> str:
     """Synthèse en 2-4 phrases, langage simple — public cible : recruteur non-expert cyber
     (CDC §1). Jamais de comparaison "vs semaine dernière" sur un cold start (CDC §6)."""
 
@@ -275,6 +317,17 @@ def _build_executive_summary(kpis: ReportKpis, is_cold_start: bool, sources_stat
         f"{kpis.c2_active_count} command-and-control {c2_noun} {c2_verb} active and "
         f"{kpis.malicious_url_count} malicious URLs were seen online in the monitored feeds."
     )
+
+    # Omis si aucune des 3 sources d'enrichissement C2 (Shodan/Spamhaus/GreyNoise) n'a tourné
+    # ce run — cf. _c2_cross_confirmed, qui retourne None dans ce cas précisément pour que ce
+    # bloc n'affiche jamais un faux "0 confirmés" quand rien n'a réellement été vérifié.
+    if c2_cross_confirmed is not None:
+        confirmed = c2_cross_confirmed["confirmed"]
+        noun = "server" if confirmed == 1 else "servers"
+        verb = "was" if confirmed == 1 else "were"
+        sentences.append(
+            f"{confirmed} of this week's active C2 {noun} {verb} independently confirmed by more than one threat feed."
+        )
 
     degraded = [name for name, status in sources_status.items() if status.startswith(_DEGRADED_STATUS_PREFIXES)]
     if degraded:
@@ -325,6 +378,69 @@ def _cwe_top_items(cwe_distribution: list[dict], n: int) -> list[dict]:
     ]
 
 
+def _chip_breakdown(items: list[dict], key: str, out_key: str, n: int) -> list[dict]:
+    """Group-by + count + pct_of_total sur une liste de dicts (pas un DataFrame polars — c2_items/
+    malicious_url_items sont déjà des listes Python à ce stade), même forme que _geo_top_countries/
+    _cwe_top_items. 1-2 entrées à count=1 chacune ne portent aucun signal de distribution réel
+    (même discipline que _HISTOGRAM_MIN_ITEMS) -> [] plutôt qu'un chip-list vide de sens."""
+    counted: dict[str, int] = {}
+    for item in items:
+        value = item.get(key)
+        if value:
+            counted[value] = counted.get(value, 0) + 1
+    if not counted:
+        return []
+    if len(counted) <= 2 and all(count == 1 for count in counted.values()):
+        return []
+    total = sum(counted.values())
+    rows = sorted(counted.items(), key=lambda kv: kv[1], reverse=True)[:n]
+    return [{out_key: name, "count": count, "pct_of_total": round(count / total * 100, 1)} for name, count in rows]
+
+
+def _open_ports_breakdown(c2_items: list[dict], n: int) -> list[dict]:
+    """Aplatit c2_items[].open_ports (Shodan InternetDB) avant de réutiliser _chip_breakdown —
+    même pattern que malware_family_breakdown/top_asn ci-dessous, un pseudo-item par port ouvert
+    plutôt que par IP. Sous _PORT_BREAKDOWN_MIN_IPS IP avec des ports reportés -> [] (pas de
+    chart plutôt qu'un chip-list sur 1-2 IP, même discipline que _HISTOGRAM_MIN_ITEMS)."""
+    ips_with_ports = sum(1 for item in c2_items if item.get("open_ports"))
+    if ips_with_ports < _PORT_BREAKDOWN_MIN_IPS:
+        return []
+    flattened = [{"port": port} for item in c2_items for port in (item.get("open_ports") or [])]
+    return _chip_breakdown(flattened, "port", "port", n)
+
+
+def _c2_cross_confirmed(c2_items: list[dict], sources_status: dict[str, str]) -> dict | None:
+    """ "Cross-confirmé" = au moins 2 signaux indépendants parmi les 3 nouvelles sources IP
+    (Spamhaus DROP/EDROP match, GreyNoise classification == "malicious", Shodan InternetDB ayant
+    des données pour cette IP) — FeodoTracker/ThreatFox eux-mêmes ne comptent pas comme un 4e
+    signal, ils sont déjà la source de base de toute la section C2.
+    GreyNoise "unknown" ne compte PAS comme confirmation (ça veut dire "non classé", zéro
+    information dans un sens ou l'autre) — seul "malicious" est un signal positif. La spec
+    initiale envisageait "GreyNoise non-scanner", mais GreyNoise n'a pas de valeur "scanner" en
+    classification (vérifié docs.greynoise.io) : "benign" y désigne une IP RIOT (infra de
+    confiance connue), pas un scanner — donc "malicious" est le signal le plus proche et le plus
+    défendable, cf. extract/greynoise.py.
+    Retourne None si aucune des 3 sources n'a répondu "ok" ce run (rien à confirmer réellement -
+    évite d'afficher un "0/N" qui laisserait croire à une vérification qui n'a pas eu lieu)."""
+    if not any(sources_status.get(name) == "ok" for name in ("shodan_internetdb", "spamhaus_drop", "greynoise")):
+        return None
+    total = len(c2_items)
+    if not total:
+        return None
+    confirmed = 0
+    for item in c2_items:
+        signals = sum(
+            (
+                bool(item.get("confirmed_by_spamhaus")),
+                item.get("greynoise_classification") == "malicious",
+                bool(item.get("shodan_has_data")),
+            )
+        )
+        if signals >= 2:
+            confirmed += 1
+    return {"confirmed": confirmed, "total": total}
+
+
 def _kev_items(kev_df: pl.DataFrame) -> list[dict]:
     if kev_df.height == 0:
         return []
@@ -344,6 +460,10 @@ def _kev_items(kev_df: pl.DataFrame) -> list[dict]:
 
 
 def build_c2_items(top_ips: list[dict]) -> list[dict]:
+    # open_ports/known_cves/confirmed_by_spamhaus/greynoise_classification/shodan_has_data sont
+    # déjà posés sur top_ips par orchestrate.py::_build_top_ips (merge post rank_top_n_ips, cf.
+    # CDC "Data source integration rule") — cette fonction ne fait que les faire passer dans le
+    # dict template-ready, même rôle que pour country/asn/malware ci-dessous.
     return [
         {
             "ip_address": item["ip"],
@@ -354,6 +474,11 @@ def build_c2_items(top_ips: list[dict]) -> list[dict]:
             "last_online": item.get("last_seen"),
             "lat": item.get("lat"),
             "lon": item.get("lon"),
+            "open_ports": item.get("open_ports") or [],
+            "known_cves": item.get("known_cves") or [],
+            "confirmed_by_spamhaus": bool(item.get("confirmed_by_spamhaus")),
+            "greynoise_classification": item.get("greynoise_classification"),
+            "shodan_has_data": bool(item.get("shodan_has_data")),
         }
         for item in top_ips
     ]
@@ -377,6 +502,9 @@ def build_malicious_url_items(ranked_urlhaus_df: pl.DataFrame) -> list[dict]:
                 "threat_type": row.get("threat"),
                 "tags": row.get("tags") or [],
                 "date_added": date_added.isoformat() if hasattr(date_added, "isoformat") else date_added,
+                # ["urlhaus"] par défaut : lignes construites avant le merge PhishTank (ou runs où
+                # PhishTank est skip/failed) n'ont jamais de colonne "sources" du tout.
+                "sources": row.get("sources") or ["urlhaus"],
             }
         )
     return items
@@ -409,6 +537,7 @@ def build_pdf_context(
         return [h[key] for h in history_entries if key in h] + [current]
 
     threatfox_enabled = sources_status.get("threatfox") == "ok"
+    c2_cross_confirmed = _c2_cross_confirmed(c2_items, sources_status)
 
     return {
         "report": {
@@ -423,7 +552,7 @@ def build_pdf_context(
                 "malicious_url_count": kpis.malicious_url_count,
             },
         },
-        "executive_summary": _build_executive_summary(kpis, is_cold_start, sources_status),
+        "executive_summary": _build_executive_summary(kpis, is_cold_start, sources_status, c2_cross_confirmed),
         "sources_status": [{"name": name, "status": status} for name, status in sorted(sources_status.items())],
         "cve": {
             "critical_count": kpis.cve_critical_count,
@@ -453,17 +582,27 @@ def build_pdf_context(
             "items": c2_items,
             "sparkline": _build_sparkline_svg(_series("c2_active_count", kpis.c2_active_count)),
             "map_svg": _build_world_map_svg(c2_items),
+            "malware_family_breakdown": _chip_breakdown(c2_items, "malware_family", "malware_family", _TOP_N_COUNTRIES),
+            "top_asn": _chip_breakdown(c2_items, "asn", "asn", _TOP_N_COUNTRIES),
+            "open_ports_breakdown": _open_ports_breakdown(c2_items, _TOP_N_COUNTRIES),
+            "cross_confirmed": c2_cross_confirmed,
         },
         "malicious_urls": {
             "online_count": kpis.malicious_url_count,
             "trend_pct": kpis.malicious_url_trend_pct,
             "items": malicious_url_items,
             "sparkline": _build_sparkline_svg(_series("malicious_url_count", kpis.malicious_url_count)),
+            "threat_type_breakdown": _chip_breakdown(
+                malicious_url_items, "threat_type", "threat_type", _TOP_N_COUNTRIES
+            ),
         },
         "threatfox": {
             "enabled": threatfox_enabled,
             "families_count": kpis.threatfox_malware_families_count,
             "families_trend_pct": kpis.threatfox_malware_families_trend_pct,
+            "sparkline": _build_sparkline_svg(
+                _series("threatfox_malware_families_count", kpis.threatfox_malware_families_count)
+            ),
         },
         "geo": {
             "top_countries": _geo_top_countries(feodo_df, _TOP_N_COUNTRIES),

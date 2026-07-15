@@ -5,6 +5,10 @@ import polars as pl
 from beesint_threat_report.load.pdf_context import (
     _build_executive_summary,
     _build_sparkline_svg,
+    _c2_cross_confirmed,
+    _open_ports_breakdown,
+    build_c2_items,
+    build_malicious_url_items,
     build_pdf_context,
 )
 from beesint_threat_report.transform.kpis import ReportKpis
@@ -122,3 +126,154 @@ def test_build_pdf_context_surfaces_new_fields():
     assert context["threatfox"]["enabled"] is False
     assert context["kev"]["trend_pct"] is None
     assert context["cve"]["sparkline"] is not None
+
+
+# ---- build_c2_items: passthrough des champs d'enrichissement (Shodan/Spamhaus/GreyNoise) ----
+
+
+def test_build_c2_items_carries_new_enrichment_fields():
+    top_ips = [
+        {
+            "ip": "1.1.1.1",
+            "country": "US",
+            "asn": "AS13335",
+            "malware": "Heodo",
+            "first_seen": "2026-07-01",
+            "last_seen": "2026-07-08",
+            "lat": 1.0,
+            "lon": 2.0,
+            "open_ports": [22, 443],
+            "known_cves": ["CVE-2024-0001"],
+            "confirmed_by_spamhaus": True,
+            "greynoise_classification": "malicious",
+            "shodan_has_data": True,
+        }
+    ]
+    items = build_c2_items(top_ips)
+    assert items[0]["open_ports"] == [22, 443]
+    assert items[0]["known_cves"] == ["CVE-2024-0001"]
+    assert items[0]["confirmed_by_spamhaus"] is True
+    assert items[0]["greynoise_classification"] == "malicious"
+    assert items[0]["shodan_has_data"] is True
+
+
+def test_build_c2_items_defaults_when_enrichment_missing():
+    items = build_c2_items([{"ip": "2.2.2.2"}])
+    assert items[0]["open_ports"] == []
+    assert items[0]["known_cves"] == []
+    assert items[0]["confirmed_by_spamhaus"] is False
+    assert items[0]["greynoise_classification"] is None
+    assert items[0]["shodan_has_data"] is False
+
+
+# ---- build_malicious_url_items: champ "sources" (merge PhishTank) --------------------------
+
+
+def test_build_malicious_url_items_carries_sources():
+    df = pl.DataFrame(
+        {
+            "url": ["http://a.example"],
+            "threat": ["phishing"],
+            "tags": [["x"]],
+            "date_added": [datetime(2026, 7, 1)],
+            "sources": [["urlhaus", "phishtank"]],
+        }
+    )
+    items = build_malicious_url_items(df)
+    assert items[0]["sources"] == ["urlhaus", "phishtank"]
+
+
+def test_build_malicious_url_items_defaults_sources_to_urlhaus_when_column_absent():
+    df = pl.DataFrame(
+        {
+            "url": ["http://a.example"],
+            "threat": ["phishing"],
+            "tags": [["x"]],
+            "date_added": [datetime(2026, 7, 1)],
+        }
+    )
+    items = build_malicious_url_items(df)
+    assert items[0]["sources"] == ["urlhaus"]
+
+
+# ---- _open_ports_breakdown -------------------------------------------------------------
+
+
+def test_open_ports_breakdown_returns_empty_below_min_ips():
+    c2_items = [{"open_ports": [22, 443]}, {"open_ports": []}]  # 1 seule IP avec des ports
+    assert _open_ports_breakdown(c2_items, n=10) == []
+
+
+def test_open_ports_breakdown_aggregates_across_enough_ips():
+    c2_items = [
+        {"open_ports": [22, 443]},
+        {"open_ports": [443]},
+        {"open_ports": [443, 8080]},
+    ]
+    result = _open_ports_breakdown(c2_items, n=10)
+    ports_by_count = {row["port"]: row["count"] for row in result}
+    assert ports_by_count[443] == 3
+    assert ports_by_count[22] == 1
+
+
+# ---- _c2_cross_confirmed -----------------------------------------------------------------
+
+
+def test_c2_cross_confirmed_none_when_no_enrichment_source_ran():
+    c2_items = [{"confirmed_by_spamhaus": True, "greynoise_classification": "malicious", "shodan_has_data": True}]
+    result = _c2_cross_confirmed(
+        c2_items,
+        sources_status={"shodan_internetdb": "failed", "spamhaus_drop": "failed", "greynoise": "skipped:no_api_key"},
+    )
+    assert result is None
+
+
+def test_c2_cross_confirmed_none_when_no_c2_items():
+    result = _c2_cross_confirmed([], sources_status={"spamhaus_drop": "ok"})
+    assert result is None
+
+
+def test_c2_cross_confirmed_counts_items_with_two_plus_signals():
+    c2_items = [
+        {"confirmed_by_spamhaus": True, "greynoise_classification": "malicious", "shodan_has_data": True},  # 3 signaux
+        {"confirmed_by_spamhaus": True, "greynoise_classification": None, "shodan_has_data": False},  # 1 signal
+        {
+            "confirmed_by_spamhaus": False,
+            "greynoise_classification": "unknown",
+            "shodan_has_data": True,
+        },  # 1 signal (unknown ne compte pas)
+    ]
+    result = _c2_cross_confirmed(
+        c2_items, sources_status={"spamhaus_drop": "ok", "greynoise": "ok", "shodan_internetdb": "ok"}
+    )
+    assert result == {"confirmed": 1, "total": 3}
+
+
+def test_c2_cross_confirmed_greynoise_unknown_is_not_a_signal():
+    c2_items = [{"confirmed_by_spamhaus": True, "greynoise_classification": "unknown", "shodan_has_data": False}]
+    result = _c2_cross_confirmed(c2_items, sources_status={"greynoise": "ok"})
+    assert result == {"confirmed": 0, "total": 1}
+
+
+# ---- executive summary: nouvelle phrase cross-confirmed -----------------------------------
+
+
+def test_build_executive_summary_omits_cross_confirmed_sentence_when_none():
+    summary = _build_executive_summary(
+        _kpis(), is_cold_start=False, sources_status={"nvd": "ok"}, c2_cross_confirmed=None
+    )
+    assert "independently confirmed" not in summary
+
+
+def test_build_executive_summary_includes_cross_confirmed_sentence_when_present():
+    summary = _build_executive_summary(
+        _kpis(), is_cold_start=False, sources_status={"nvd": "ok"}, c2_cross_confirmed={"confirmed": 2, "total": 5}
+    )
+    assert "2 of this week's active C2 servers were independently confirmed by more than one threat feed." in summary
+
+
+def test_build_executive_summary_cross_confirmed_singular_noun_and_verb():
+    summary = _build_executive_summary(
+        _kpis(), is_cold_start=False, sources_status={"nvd": "ok"}, c2_cross_confirmed={"confirmed": 1, "total": 5}
+    )
+    assert "1 of this week's active C2 server was independently confirmed" in summary

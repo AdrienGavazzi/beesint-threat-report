@@ -105,6 +105,68 @@ class UrlhausEntry(BaseModel):
         return _to_utc(value)
 
 
+class ShodanInternetDbRecord(BaseModel):
+    """Un enregistrement par IP (pas de endpoint batch sur le tier gratuit InternetDB) —
+    l'IP 404/non-indexée n'atteint jamais validate_batch, filtrée en amont dans l'extracteur."""
+
+    model_config = ConfigDict(frozen=True)
+    ip: str
+    ports: list[int] = []
+    vulns: list[str] = []
+    tags: list[str] = []
+
+    @field_validator("ip")
+    @classmethod
+    def _validate_ip(cls, value: str) -> str:
+        ipaddress.ip_address(value)  # raises ValueError si malformé
+        return value
+
+
+class SpamhausRange(BaseModel):
+    """Une ligne CIDR du flux texte DROP/EDROP — validée pour quarantiner une ligne malformée
+    sans faire planter le parsing du reste du flux (~milliers de lignes)."""
+
+    model_config = ConfigDict(frozen=True)
+    cidr: str
+
+    @field_validator("cidr")
+    @classmethod
+    def _validate_cidr(cls, value: str) -> str:
+        ipaddress.ip_network(value, strict=False)  # raises ValueError si malformé
+        return value
+
+
+class GreyNoiseClassification(BaseModel):
+    """`classification` reste la valeur brute renvoyée par GreyNoise (pas de champ Literal
+    contraint) — leur doc publique liste benign/malicious/unknown (+ suspicious sur d'autres
+    tiers), pas garanti figé, cf. commentaire greynoise.py sur le sens réel de "benign"."""
+
+    model_config = ConfigDict(frozen=True)
+    ip: str
+    classification: str
+
+    @field_validator("ip")
+    @classmethod
+    def _validate_ip(cls, value: str) -> str:
+        ipaddress.ip_address(value)
+        return value
+
+
+class PhishTankEntry(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    phish_id: str
+    url: str
+    submission_time: datetime
+    verified: bool
+    online: bool
+    target: str = ""
+
+    @field_validator("submission_time")
+    @classmethod
+    def _force_utc(cls, value: datetime) -> datetime:
+        return _to_utc(value)
+
+
 class ThreatFoxIoc(BaseModel):
     model_config = ConfigDict(frozen=True)
     ioc_id: str
