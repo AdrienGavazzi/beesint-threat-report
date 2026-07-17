@@ -9,20 +9,18 @@
       {{ mttk.gauge_svg | safe }}
     </div>
     {% endif %}
-    <div class="chart-card" style="flex: 1 1 200px;">
-      <div class="kpi-grid">
-        <div class="kpi-card">
-          <div class="value">{{ mttk.average_days if mttk.average_days is not none else "N/A" }}</div>
-          <div class="label">Average (days)</div>
-        </div>
-        <div class="kpi-card">
-          <div class="value">{{ mttk.median_days if mttk.median_days is not none else "N/A" }}</div>
-          <div class="label">Median (days)</div>
-        </div>
-        <div class="kpi-card">
-          <div class="value">{{ mttk.sample_size }}</div>
-          <div class="label">Sample size</div>
-        </div>
+    <div class="mttk-kpi-column">
+      <div class="kpi-card">
+        <div class="value">{{ mttk.average_days if mttk.average_days is not none else "N/A" }}</div>
+        <div class="label">Average (days)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="value">{{ mttk.median_days if mttk.median_days is not none else "N/A" }}</div>
+        <div class="label">Median (days)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="value">{{ mttk.sample_size }}</div>
+        <div class="label">Sample size</div>
       </div>
     </div>
   </div>

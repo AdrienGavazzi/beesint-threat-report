@@ -58,6 +58,19 @@
   --color-error: #EF4444;
   --color-on-primary: #090A0F;
 
+  /* Palette catégorielle "entité" (beesint-frontend/src/index.css) — pas encore utilisée avant
+     la section C2 infra (points de carte/barres colorés par rang, cf. pdf_context.py
+     _RANK_COLOR_TOKENS), copiée ici pour rester cohérente avec le reste du fichier (tous les
+     tokens sont dupliqués 1:1 depuis le frontend, cf. commentaire en tête de fichier). */
+  --color-entity-domain: #0EA5E9;
+  --color-entity-ip: #f59e0b;
+  --color-entity-email: #22c55e;
+  --color-entity-username: #06b6d4;
+  --color-entity-organization: #a855f7;
+  --color-entity-certificate: #ec4899;
+  --color-entity-hash-leak: #ef4444;
+  --color-entity-other: #4A6080;
+
   --font-display: "Syne", sans-serif;
   --font-sans: "Plus Jakarta Sans", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
@@ -83,13 +96,20 @@
   background: var(--color-bg-base);
 
   @bottom-left {
-    content: "Data kindly provided by abuse.ch";
+    /* content: url(logo.png) " beesint.com" testé empiriquement (PDF réel généré) : l'image se
+       rend bien, mais à sa résolution native (620x603px) sans AUCUN moyen de la dimensionner —
+       une margin-box @bottom-left/@bottom-right/@bottom-center ne supporte pas de sélecteur
+       imbriqué pour styler le noeud "content" généré (pas de `@bottom-left img { width: ... }`
+       en CSS Paged Media), et width/height posés directement sur la margin-box elle-même n'ont
+       aucun effet sur son contenu généré. Résultat au rendu réel : le logo recouvrait toute la
+       page. Fallback texte seul retenu, cf. CLAUDE.md "WeasyPrint 62.3" pour le détail. */
+    content: "BeeSINT — beesint.com";
     font-family: var(--font-mono);
     font-size: 7.5px;
     color: var(--color-text-muted);
   }
   @bottom-right {
-    content: "Sources: NVD, CISA KEV, ip-api.com";
+    content: "Sources: NVD, CISA KEV, ip-api.com, abuse.ch";
     font-family: var(--font-mono);
     font-size: 7.5px;
     color: var(--color-text-muted);
@@ -194,8 +214,16 @@ h1, h2, h3 {
 }
 
 /* Page de garde — @page :first n'a plus de marge (ci-dessus), .cover recrée le même inset via
-   padding (box-sizing: border-box global, donc height:20cm reste inchangée) plutôt que de
-   laisser le contenu toucher le bord physique de la page.
+   padding (box-sizing: border-box global, donc height:29.7cm = pleine page A4 physique reste
+   inchangée par le padding) plutôt que de laisser le contenu toucher le bord physique de la page.
+   height doit égaler la hauteur RÉELLE de la page A4 (29.7cm), pas une valeur arbitraire plus
+   petite : un height:20cm laissait ~9-10cm de la page physique hors de .cover, et .cover .run-id
+   (position:absolute, bottom:1.4cm — voir plus bas) se retrouvait ancré au bas de ce conteneur de
+   20cm au lieu du vrai bas de la page (bug confirmé au rendu réel : le run-id flottait ~9cm
+   au-dessus du bord physique). Avec height:29.7cm, .cover EST la page, donc plus besoin d'un
+   break explicite pour éviter qu'Executive Summary/Source Status ne s'enchaînent sur cette même
+   page 1 (l'ancien commentaire à ce sujet ne s'applique plus) — le break-after ci-dessous reste
+   posé par robustesse si le contenu de .cover venait à raccourcir.
    .cover lui-même N'EST PAS flex : un enfant `position:absolute` (.run-id ci-dessous) d'un
    parent `display:flex` ne se rend pas du tout sur WeasyPrint 62.3 (vérifié empiriquement,
    texte totalement absent du PDF, y compris avec `position:relative` sur le flex parent et
@@ -204,11 +232,8 @@ h1, h2, h3 {
    (non-flex, position:relative) pour rester positionnable en absolu. */
 .cover {
   position: relative;
-  height: 20cm;
+  height: 29.7cm;
   padding: 2.2cm 1.8cm 2.6cm 1.8cm;
-  /* break-after: la couverture (20cm, @page :first sans marge) laisse ~9-10cm libres sur la
-     page physique — sans ce break explicite, Executive Summary/Source Status s'enchaînaient sur
-     cette même page 1 avant le premier saut naturel (bug confirmé au rendu réel). */
   break-after: page;
   page-break-after: always;
   background: radial-gradient(circle at 20% 25%, rgba(14, 165, 233, 0.30) 0%, rgba(9, 10, 15, 0) 60%);
@@ -280,10 +305,14 @@ h1, h2, h3 {
   /* CSS Grid `repeat(auto-fit, ...)` n'est pas supporté par WeasyPrint (silently ignoré,
      warning au rendu) — flexbox fait le même travail ("pas de colonne vide" quel que soit le
      nombre de cards) et est déjà utilisé ailleurs dans ce fichier (.cover) sans problème de
-     rendu. */
+     rendu.
+     Pas de `gap` ici : `flex-wrap` + `gap` perd silencieusement le gap dès que le wrap force
+     2+ lignes (confirmé au rendu réel sur l'ancien .lineage-grid, cf. CLAUDE.md "WeasyPrint
+     62.3" — la plupart des kpi-grid de ce rapport ne wrappent pas à 3-4 cards, mais rien ne
+     garantit qu'un run futur avec plus de KPI ne les y pousse pas). Spacing porté par la marge
+     de .kpi-card à la place, même pattern margin-over-gap que .lineage-row plus bas. */
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
 }
 .kpi-card {
   flex: 1 1 120px;
@@ -291,6 +320,7 @@ h1, h2, h3 {
   border-radius: var(--radius-md);
   background: var(--color-bg-surface);
   padding: 10px 12px;
+  margin: 0 10px 10px 0;
   position: relative;
 }
 .kpi-card .value {
@@ -320,6 +350,12 @@ h1, h2, h3 {
 table {
   width: 100%;
   border-collapse: collapse;
+  /* Chaque table de ce rapport suit directement un .kpi-grid/.chart-row/.map-frame (jamais du
+     texte courant) — un margin-top générique ici couvre tous les cas sans ajuster chaque
+     template un par un (les cards au-dessus ont déjà leur propre spacing bas via .kpi-card/
+     .chart-card margin, .map-frame margin-top, donc ce n'est pas redondant : sans cette règle,
+     la table touchait directement le bord de la card précédente, confirmé au rendu réel). */
+  margin-top: 14px;
 }
 th {
   /* font-weight explicite : le poids "bold" (700) par défaut du user-agent stylesheet sur
@@ -476,11 +512,11 @@ tbody tr:nth-child(even) {
 }
 
 /* Cartes de charts (donut, histogramme, line chart, carte) — même mécanique flexbox que
-   .kpi-grid ci-dessus (pas de repeat(auto-fit,...), non supporté par WeasyPrint). */
+   .kpi-grid ci-dessus (pas de repeat(auto-fit,...), non supporté par WeasyPrint). Pas de `gap`
+   ici non plus, même raison que .kpi-grid : spacing porté par la marge de .chart-card. */
 .chart-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
   margin-top: 10px;
 }
 .chart-card {
@@ -489,6 +525,7 @@ tbody tr:nth-child(even) {
   border-radius: var(--radius-md);
   background: var(--color-bg-surface);
   padding: 12px 14px;
+  margin: 0 16px 16px 0;
 }
 .chart-card-title {
   font-family: var(--font-mono);
@@ -524,7 +561,12 @@ tbody tr:nth-child(even) {
 .donut-row {
   display: flex;
   align-items: center;
-  gap: 18px;
+  /* 18px -> 32px : donut et légende se touchaient quasiment visuellement au rendu réel (le
+     cercle du donut a lui-même un rayon large, peu de marge visuelle restait à 18px). Paire
+     fixe à 2 enfants (pas de wrap), donc gap reste fiable ici — ce n'est pas le bug
+     flex-wrap+gap documenté plus haut. */
+  gap: 32px;
+  padding-left: 4px;
 }
 .donut-row .chart-legend {
   font-size: inherit;
@@ -551,71 +593,116 @@ tbody tr:nth-child(even) {
   display: block;
 }
 
-/* Cartes de source pour la section lineage. Remplace l'ancienne <ul class="lineage-sources">
-   texte brut "nom - url - note".
-   IMPORTANT — bug WeasyPrint 62.3 confirmé au rendu réel (pas seulement en lecture de CSS) :
-   `display:flex; flex-wrap:wrap; gap:10px` fonctionne pour .kpi-grid/.chart-row (qui ne tiennent
-   jamais que sur 1 seule ligne à ce nombre d'items), mais dès que flex-wrap force plusieurs
-   LIGNES (7 cartes ici → 3 lignes), le `gap` est silencieusement ignoré : les cartes se touchent,
-   bordures collées, comme si gap:0. C'est distinct du bug "nested flex+gap casse le wrap de texte"
-   déjà documenté pour .chip/.source-badge — celui-ci ne concerne que gap+wrap multi-lignes. Fix :
-   marge explicite sur .lineage-card (même pattern que .chip/.source-badge), le parent garde
-   flex-wrap pour la mise en ligne mais plus aucune dépendance à gap pour l'espacement réel. */
-.lineage-grid {
+/* Même bug que .map-frame svg ci-dessus, sur les 2 autres charts rendus en pleine largeur de
+   section (chart-card avec style="flex-basis: 100%" inline, cf. templates _summary.html.j2 /
+   _malicious_urls.html.j2) : leur <svg> pose width/height en attributs fixes (pdf_context.py,
+   px absolus) qui ne remplissaient qu'une fraction de la largeur réelle de la card au rendu réel
+   (bug confirmé visuellement, pas seulement en lecture de CSS) — seul .map-frame svg avait cette
+   règle jusqu'ici. .history-line-chart/.area-chart sont les classes posées sur la racine <svg>
+   par _build_history_line_chart_svg/_build_area_chart_svg (pdf_context.py). */
+.chart-card svg.history-line-chart,
+.chart-card svg.area-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+/* Légende sous la carte C2 (points colorés par malware family, cf. pdf_context.py
+   _rank_color/dot_color_by_malware) — réutilise .chart-legend/.chart-legend-item déjà défini
+   ci-dessus plutôt qu'un composant dédié. */
+.map-legend {
+  margin-top: 8px;
+}
+
+/* Malware family / Top ASN / Open ports (C2 infra) — même bug flex-wrap+gap documenté sur
+   .kpi-grid/.chart-row plus haut, même fix (marge sur les colonnes plutôt que gap sur le
+   parent). 2 colonnes par ligne (flex-basis ~45% laisse de la place à la marge droite sans
+   calc(), non fiable sur WeasyPrint 62.3 pour ce genre d'expression). */
+.breakdown-grid {
   display: flex;
   flex-wrap: wrap;
-  margin-top: 10px;
+  margin-top: 4px;
 }
-.lineage-card {
+.breakdown-col {
+  flex: 1 1 45%;
+  min-width: 260px;
+  margin: 0 20px 20px 0;
+}
+
+/* MTTK — colonne verticale des 3 KPI à droite de la jauge (cf. _mttk.html.j2), remplace l'ancien
+   wrapper .chart-card qui encadrait les 3 KPI d'une card superflue. flex-direction:column, donc
+   flex-basis porte sur la hauteur (pas la largeur) — .kpi-card doit rester à sa hauteur naturelle
+   (flex: 0 0 auto) et prendre toute la largeur dispo (align-items:stretch par défaut suffit, pas
+   besoin de width:100% explicite). */
+.mttk-kpi-column {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 200px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-surface);
-  padding: 10px 12px;
-  margin: 0 10px 10px 0;
 }
-.lineage-card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+.mttk-kpi-column .kpi-card {
+  flex: 0 0 auto;
 }
-.lineage-badge {
-  /* Monogramme généré (initiale de la source), pas de vrai logo tiers — cf. décision produit :
-     évite tout enjeu de droit d'usage de marque et reste cohérent avec la DA sombre (un vrai
-     logo suppose un fond clair/recolorisation par source, pas maintenable ici). */
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 11px;
+
+/* Section lineage — refonte "liste sobre" (plus de card look) : ces lignes ne sont pas des KPI,
+   elles ne doivent pas visuellement ressembler à des KPI/données de menace (cf. CDC Phase B point
+   10). Remplace l'ancien .lineage-grid/.lineage-card (bordures + fond de card par source) par une
+   liste groupée par catégorie (cf. pdf_context.py _sources_by_category), libellés font-mono petite
+   taille, séparateurs fins border-bottom au lieu de bordures de card, aucun fond différent du
+   reste de la page.
+   IMPORTANT — nouveau bug WeasyPrint 62.3 confirmé au rendu réel (distinct de flex-wrap+gap déjà
+   documenté ailleurs dans ce fichier, celui-ci touche un flex row SANS wrap) : un enfant flex avec
+   `flex: 0 0 220px` (.lineage-row-name) et un texte plus large que 220px ne wrap PAS son texte dans
+   la boîte contrainte comme sur un navigateur — le texte déborde à sa largeur de contenu naturelle,
+   ce qui "avale" visuellement le `gap` du parent (les 3 colonnes se retrouvent collées, comme si
+   gap:0). Fix : plus de `gap` ici, marge explicite sur les colonnes (même pattern margin qu'ailleurs
+   dans ce fichier) + `white-space:nowrap; overflow:hidden; text-overflow:ellipsis` sur les colonnes
+   à largeur fixe pour forcer une troncature au lieu d'un débordement. */
+.lineage-list {
+  margin-top: 6px;
 }
-.lineage-card-name {
-  /* font-weight explicite : même raison que .badge/.section-title/th ci-dessus (700 UA absent
-     des webfonts embarqués). */
-  font-weight: 600;
-  font-size: 10.5px;
-  color: var(--color-text-body);
-  margin: 0;
+.lineage-group {
+  margin-bottom: 14px;
 }
-.lineage-card-url {
+.lineage-group-title {
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--color-text-muted);
   margin: 0 0 4px 0;
+}
+.lineage-row {
+  display: flex;
+  align-items: baseline;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.lineage-row-name {
+  flex: 0 0 200px;
+  font-size: 9.5px;
+  color: var(--color-text-body);
+  margin-right: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.lineage-card-note {
+.lineage-row-url {
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--color-primary-light);
+  margin-right: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lineage-row-note {
+  flex: 0 0 200px;
   font-size: 8.5px;
   color: var(--color-text-muted);
-  margin: 0;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Bloc de branding en clôture du rapport (après Lineage) — pour que le PDF reste identifiable

@@ -7,62 +7,78 @@ import polars as pl
 
 from beesint_threat_report.load.countries import country_name
 from beesint_threat_report.load.cwe_names import cwe_name
+from beesint_threat_report.load.world_borders_path import WORLD_BORDERS_PATH_D
 from beesint_threat_report.load.world_map_path import WORLD_LANDMASS_PATH_D
 from beesint_threat_report.transform.kpis import ReportKpis
 
 _TOP_N_COUNTRIES = 10
 _URL_TRUNCATE_LEN = 80
 
+# "category" groupe les sources pour la section Pipeline Lineage & Source Attribution (refonte
+# liste sobre, pas de card look — cf. _lineage.html.j2) : 4 groupes fixes couvrant les 4 grandes
+# familles de données du rapport (CVE/KEV, C2 infra + son enrichissement IP, URLs malveillantes,
+# géolocalisation). Shodan/Spamhaus/GreyNoise classées "C2" : ce sont des sources d'enrichissement
+# des mêmes IP C2 (cf. CDC "Data source integration rule"), pas une catégorie à part.
 _SOURCES = [
     {
         "name": "NVD (National Vulnerability Database)",
         "url": "https://nvd.nist.gov/",
         "note": "Domaine public — NIST.",
+        "category": "CVE / KEV",
     },
     {
         "name": "CISA Known Exploited Vulnerabilities (KEV)",
         "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
         "note": "Domaine public — CISA.",
+        "category": "CVE / KEV",
     },
     {
         "name": "abuse.ch FeodoTracker",
         "url": "https://feodotracker.abuse.ch/",
         "note": "Data kindly provided by abuse.ch",
+        "category": "C2 Infrastructure",
     },
     {
         "name": "abuse.ch URLhaus",
         "url": "https://urlhaus.abuse.ch/",
         "note": "Data kindly provided by abuse.ch",
+        "category": "Malicious URLs",
     },
     {
         "name": "abuse.ch ThreatFox",
         "url": "https://threatfox.abuse.ch/",
         "note": "Data kindly provided by abuse.ch",
+        "category": "C2 Infrastructure",
     },
     {
         "name": "ip-api.com",
         "url": "https://ip-api.com/",
         "note": "Géolocalisation IP, usage non-commercial.",
+        "category": "Geolocation",
     },
     {
         "name": "Shodan InternetDB",
         "url": "https://internetdb.shodan.io/",
         "note": "Domaine public — gratuit, sans clé API.",
+        "category": "C2 Infrastructure",
     },
     {
         "name": "Spamhaus DROP/EDROP",
         "url": "https://www.spamhaus.org/drop/",
         "note": "Listes CIDR publiques — usage non-commercial.",
+        "category": "C2 Infrastructure",
     },
     {
         "name": "GreyNoise Community API",
         "url": "https://viz.greynoise.io/",
         "note": "Tier gratuit, clé API requise — classification IP.",
+        "category": "C2 Infrastructure",
     },
     {
         "name": "OpenPhish",
         "url": "https://openphish.com/",
         "note": "Flux public communautaire — gratuit, sans clé API.",
+        "category": "Malicious URLs",
     },
 ]
 
@@ -84,6 +100,43 @@ _DONUT_HIGH_COLOR = "#F59E0B"  # --color-warning
 _HISTOGRAM_COLOR = "#0EA5E9"  # --color-primary
 _HISTOGRAM_MIN_ITEMS = 6  # sous ce seuil, un histogramme par bin serait aussi peu lisible que
 # les bar-charts count=1 déjà bannis ailleurs (vendors/CWE) — cf. philosophie du fichier.
+# Frontière C2 sur la carte (nouveau path statique, cf. world_borders_path.py) — ton neutre
+# discret, distinct à la fois de _MAP_LAND_COLOR (masse continentale) et des couleurs de rang
+# ci-dessous (dots), pour rester un repère de fond plutôt qu'une donnée.
+_MAP_BORDER_COLOR = "#4A6080"  # --color-entity-other, réutilisé comme gris-bleu neutre
+
+# Palette catégorielle "rang -> couleur", tokens --color-entity-* du design system frontend (cf.
+# CLAUDE.md racine, ENTITY_COLORS dans beesint-frontend/src/types/index.ts) — copiés ici au même
+# titre que les autres tokens dupliqués en tête de report.css (repos indépendants, à
+# resynchroniser manuellement si la DA change côté frontend). Assignation déterministe par rang
+# (index 0 = valeur la plus fréquente d'un classement déjà trié par _chip_breakdown) : UNE SEULE
+# constante consommée à la fois par les mini-bar-charts (barres), la carte C2 (points) et les
+# cellules de tableau correspondantes (malware family/ASN), pour qu'un même nom ait toujours la
+# même couleur partout où il apparaît dans la section C2.
+_RANK_COLOR_TOKENS = [
+    "#0EA5E9",  # --color-entity-domain
+    "#f59e0b",  # --color-entity-ip
+    "#22c55e",  # --color-entity-email
+    "#06b6d4",  # --color-entity-username
+    "#a855f7",  # --color-entity-organization
+    "#ec4899",  # --color-entity-certificate
+    "#ef4444",  # --color-entity-hash-leak
+    "#4A6080",  # --color-entity-other
+]
+
+
+def _rank_color(rank: int) -> str:
+    return _RANK_COLOR_TOKENS[rank % len(_RANK_COLOR_TOKENS)]
+
+
+def _attach_rank_colors(rows: list[dict]) -> list[dict]:
+    """Attache `color` (palette ci-dessus, index = position dans `rows`) à une liste déjà triée
+    par _chip_breakdown/_open_ports_breakdown (rang 0 = valeur la plus fréquente). Retourne une
+    NOUVELLE liste de dicts (jamais de mutation en place — ces rows peuvent être réutilisées
+    telles quelles ailleurs)."""
+    return [{**row, "color": _rank_color(i)} for i, row in enumerate(rows)]
+
+
 # Palette catégorielle fixe pour le line chart CVE/KEV/C2 (3 séries, un seul axe partagé —
 # les 3 KPI sont des comptages de même ordre de grandeur, contrairement à malicious_url_count
 # qui reste sur son propre sparkline). Violet choisi pour C2 : ni error ni warning, pour ne pas
@@ -129,7 +182,9 @@ def _build_sparkline_svg(
     )
 
 
-def _build_world_map_svg(items: list[dict], width: int = 480, height: int = 220) -> str | None:
+def _build_world_map_svg(
+    items: list[dict], dot_color_by_malware: dict[str, str] | None = None, width: int = 480, height: int = 220
+) -> str | None:
     """Scatter équirectangulaire pur SVG (pas de tuiles/basemap : aucun appel réseau depuis le
     rendu PDF, cf. philosophie "continue en dégradé" — un run ETL ne doit jamais dépendre de la
     disponibilité d'un service tiers juste pour dessiner une carte).
@@ -139,9 +194,17 @@ def _build_world_map_svg(items: list[dict], width: int = 480, height: int = 220)
     dessous de l'espace dispo (vérifié empiriquement — des attributs width/height fixes sur <svg>
     ignorent la largeur réelle du conteneur). Graticule lon/lat retirée : elle précédait la
     silhouette réelle (placeholder) et, une fois superposée à `_MAP_LAND_COLOR`, ne faisait que se
-    confondre visuellement avec le contour des continents sans rien ajouter."""
+    confondre visuellement avec le contour des continents sans rien ajouter.
+
+    dot_color_by_malware : mapping malware_family -> couleur (palette _RANK_COLOR_TOKENS, cf.
+    _attach_rank_colors) — même dict que celui utilisé pour colorer la colonne "Malware family"
+    du tableau C2, pour qu'un point sur la carte matche toujours la couleur du nom en table.
+    Fallback _MAP_DOT_COLOR si absent (item sans malware_family connue, ou mapping non fourni)."""
+    dot_color_by_malware = dot_color_by_malware or {}
     points = [
-        (item["lon"], item["lat"]) for item in items if item.get("lat") is not None and item.get("lon") is not None
+        (item["lon"], item["lat"], dot_color_by_malware.get(item.get("malware_family"), _MAP_DOT_COLOR))
+        for item in items
+        if item.get("lat") is not None and item.get("lon") is not None
     ]
     if not points:
         return None
@@ -150,11 +213,11 @@ def _build_world_map_svg(items: list[dict], width: int = 480, height: int = 220)
         return (lon + 180) / 360 * width, (90 - lat) / 180 * height
 
     dots = []
-    for lon, lat in points:
+    for lon, lat, color in points:
         x, y = _project(lon, lat)
         dots.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{_MAP_DOT_COLOR}" fill-opacity="0.9" '
-            f'stroke="{_MAP_DOT_COLOR}" stroke-opacity="0.25" stroke-width="5"/>'
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{color}" fill-opacity="0.9" '
+            f'stroke="{color}" stroke-opacity="0.25" stroke-width="5"/>'
         )
 
     # Couleur dédiée, distincte de _GRID_COLOR (qui ne sert plus que de teinte de fallback
@@ -162,8 +225,16 @@ def _build_world_map_svg(items: list[dict], width: int = 480, height: int = 220)
     # au rendu (bug confirmé visuellement). _MAP_LAND_COLOR est délibérément plus clair que
     # --color-bg-elevated (fond de .map-frame) pour se détacher nettement comme "terre" sur "mer".
     landmass = f'<path d="{WORLD_LANDMASS_PATH_D}" fill="{_MAP_LAND_COLOR}" fill-opacity="0.9"/>'
+    # Frontières politiques (world_borders_path.py) — dataset Natural Earth dédié "boundary lines
+    # land" (pas les polygones de pays), donc aucun doublon avec le contour de landmass déjà
+    # dessiné ci-dessus. Stroke fin, faible opacité : repère de fond, ne doit pas rivaliser
+    # visuellement avec les points de données (dots).
+    borders = (
+        f'<path d="{WORLD_BORDERS_PATH_D}" fill="none" stroke="{_MAP_BORDER_COLOR}" '
+        f'stroke-opacity="0.5" stroke-width="0.6"/>'
+    )
 
-    return f'<svg viewBox="0 0 {width} {height}" class="world-map">' + landmass + "".join(dots) + "</svg>"
+    return f'<svg viewBox="0 0 {width} {height}" class="world-map">' + landmass + borders + "".join(dots) + "</svg>"
 
 
 def _build_severity_donut_svg(critical_count: int, high_count: int, size: int = 130, stroke: int = 16) -> str | None:
@@ -251,8 +322,17 @@ def _build_cvss_histogram_svg(
 
 
 def _build_history_line_chart_svg(
-    cve_series: list[float], kev_series: list[float], c2_series: list[float], width: int = 320, height: int = 110
+    cve_series: list[float], kev_series: list[float], c2_series: list[float], width: int = 480, height: int = 130
 ) -> str | None:
+    """Ce chart vit toujours dans une card en pleine largeur de section (chart-card avec
+    flex-basis:100%, cf. templates) — pas de width/height fixes sur la racine <svg> (seulement
+    viewBox), même raison que _build_world_map_svg : sur WeasyPrint 62.3, des attributs
+    width/height fixes sur <svg> ignorent la largeur réelle du conteneur même quand une règle CSS
+    tente de forcer width:100% dessus (vérifié empiriquement — cf. CLAUDE.md "WeasyPrint 62.3").
+    Axe Y minimal (2 ticks : min/max de la série la plus large) plutôt qu'une grille complète :
+    3 séries à échelles très différentes (CVE ~dizaines, C2 souvent <5) rendraient un axe partagé
+    à graduations régulières illisible pour les séries basses — seuls min/max donnent un repère
+    utile sans fabriquer une fausse précision."""
     series = {"cve": cve_series, "kev": kev_series, "c2": c2_series}
     lengths = {len(v) for v in series.values()}
     if len(lengths) != 1 or lengths == {0}:
@@ -264,27 +344,44 @@ def _build_history_line_chart_svg(
     all_values = [v for values in series.values() for v in values]
     lo, hi = min(all_values), max(all_values)
     span = (hi - lo) or 1
-    margin = 6
-    plot_h = height - margin * 2
-    step = width / (n - 1)
+    axis_w = 22  # largeur réservée aux labels de l'axe Y (JetBrains Mono 7px)
+    top_margin, bottom_margin = 6, 6
+    plot_w = width - axis_w
+    plot_h = height - top_margin - bottom_margin
+    step = plot_w / (n - 1)
+
+    def _y(v: float) -> float:
+        return top_margin + plot_h - ((v - lo) / span * plot_h)
 
     def _polyline(values: list[float], color: str) -> str:
-        points = " ".join(
-            f"{i * step:.1f},{margin + plot_h - ((v - lo) / span * plot_h):.1f}" for i, v in enumerate(values)
-        )
+        points = " ".join(f"{axis_w + i * step:.1f},{_y(v):.1f}" for i, v in enumerate(values))
         return f'<polyline points="{points}" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
 
+    axis = []
+    for value in (lo, hi):
+        y = _y(value)
+        axis.append(
+            f'<line x1="{axis_w}" y1="{y:.1f}" x2="{width}" y2="{y:.1f}" stroke="{_GRID_COLOR}" stroke-width="0.5"/>'
+        )
+        axis.append(
+            f'<text x="{axis_w - 4:.1f}" y="{y + 2.5:.1f}" text-anchor="end" fill="{_TEXT_MUTED_COLOR}" '
+            f'font-family="JetBrains Mono, monospace" font-size="7">{value:.0f}</text>'
+        )
+
     lines = "".join(_polyline(values, _LINE_SERIES_COLORS[key]) for key, values in series.items())
-    return f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="history-line-chart">{lines}</svg>'
+    return f'<svg viewBox="0 0 {width} {height}" class="history-line-chart">' + "".join(axis) + lines + "</svg>"
 
 
 def _build_area_chart_svg(
-    values: list[float], width: int = 320, height: int = 110, color: str = _SPARKLINE_COLOR
+    values: list[float], width: int = 480, height: int = 130, color: str = _SPARKLINE_COLOR
 ) -> str | None:
     """Graphique de tendance dédié à une seule série (utilisé pour malicious URLs, dont l'échelle
     en milliers rendrait un axe partagé avec CVE/KEV/C2 illisible, cf. commentaire sur
     _LINE_SERIES_COLORS ci-dessus). Ligne + remplissage dégradé, même garde-fou que le sparkline
-    (retourne None sous _LINE_MIN_POINTS points)."""
+    (retourne None sous _LINE_MIN_POINTS points).
+    Vit aussi dans une card en pleine largeur (flex-basis:100%) — pas de width/height fixes sur la
+    racine <svg>, même raison que _build_history_line_chart_svg/_build_world_map_svg (cf. CLAUDE.md
+    "WeasyPrint 62.3")."""
     if len(values) < _LINE_MIN_POINTS:
         return None
     lo, hi = min(values), max(values)
@@ -298,7 +395,7 @@ def _build_area_chart_svg(
     area_points = f"0,{height} " + line_points + f" {width},{height}"
 
     return (
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="area-chart">'
+        f'<svg viewBox="0 0 {width} {height}" class="area-chart">'
         f'<polygon points="{area_points}" fill="{color}" fill-opacity="0.14"/>'
         f'<polyline points="{line_points}" fill="none" stroke="{color}" stroke-width="2" '
         f'stroke-linecap="round" stroke-linejoin="round"/>'
@@ -328,12 +425,17 @@ def _build_mini_bar_chart_svg(
         y = i * row_h + (row_h - bar_h) / 2
         bar_w = max((row[count_key] / max_count) * plot_w, 2)
         label = str(row[label_key])[:18]
+        # row["color"] : présent quand `rows` vient de _attach_rank_colors (C2 breakdowns) — même
+        # couleur que le point carte/la cellule de tableau correspondante. Fallback
+        # _HISTOGRAM_COLOR (bleu unique) pour les appelants qui ne posent pas ce champ
+        # (threat_type_breakdown notamment, hors périmètre de la palette par rang).
+        bar_color = row.get("color") or _HISTOGRAM_COLOR
         bars.append(
             f'<text x="0" y="{y + bar_h / 2 + 3:.1f}" fill="{_TEXT_MUTED_COLOR}" '
             f'font-family="JetBrains Mono, monospace" font-size="8.5">{label}</text>'
         )
         bars.append(
-            f'<rect x="{label_w}" y="{y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" rx="2" fill="{_HISTOGRAM_COLOR}"/>'
+            f'<rect x="{label_w}" y="{y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" rx="2" fill="{bar_color}"/>'
         )
         bars.append(
             f'<text x="{label_w + bar_w + 6:.1f}" y="{y + bar_h / 2 + 3:.1f}" fill="{_TEXT_BODY_COLOR}" '
@@ -499,6 +601,24 @@ def _cwe_top_items(cwe_distribution: list[dict], n: int) -> list[dict]:
     ]
 
 
+_SOURCE_CATEGORY_ORDER = ["CVE / KEV", "C2 Infrastructure", "Malicious URLs", "Geolocation"]
+
+
+def _sources_by_category(sources: list[dict]) -> list[dict]:
+    """Groupe _SOURCES par `category` (cf. _SOURCE_CATEGORY_ORDER) pour la refonte "liste sobre"
+    de la section Pipeline Lineage (plus de card look, cf. _lineage.html.j2) — l'ordre des
+    catégories est fixe (pas alphabétique), pour suivre l'ordre des sections du rapport
+    (CVE/KEV -> C2 -> URLs malveillantes -> géoloc)."""
+    grouped: dict[str, list[dict]] = {}
+    for source in sources:
+        grouped.setdefault(source["category"], []).append(source)
+    return [
+        {"category": category, "sources": grouped[category]}
+        for category in _SOURCE_CATEGORY_ORDER
+        if category in grouped
+    ]
+
+
 def _chip_breakdown(items: list[dict], key: str, out_key: str, n: int) -> list[dict]:
     """Group-by + count + pct_of_total sur une liste de dicts (pas un DataFrame polars — c2_items/
     malicious_url_items sont déjà des listes Python à ce stade), même forme que _geo_top_countries/
@@ -660,6 +780,16 @@ def build_pdf_context(
     threatfox_enabled = sources_status.get("threatfox") == "ok"
     c2_cross_confirmed = _c2_cross_confirmed(c2_items, sources_status)
 
+    # Breakdowns C2 colorés par rang (cf. _attach_rank_colors) — calculés une fois ici, réutilisés
+    # à la fois pour les mini-bar-charts, la légende de la carte et les mappings malware/asn ->
+    # couleur consommés par la carte (dots) et le tableau (cellules), pour qu'un même nom porte
+    # toujours la même couleur partout dans la section C2 (cf. CDC Phase B point 8).
+    _mf_breakdown = _attach_rank_colors(_chip_breakdown(c2_items, "malware_family", "malware_family", _TOP_N_COUNTRIES))
+    _asn_breakdown = _attach_rank_colors(_chip_breakdown(c2_items, "asn", "asn", _TOP_N_COUNTRIES))
+    _ports_breakdown = _attach_rank_colors(_open_ports_breakdown(c2_items, _TOP_N_COUNTRIES))
+    _malware_color_by_name = {row["malware_family"]: row["color"] for row in _mf_breakdown}
+    _asn_color_by_name = {row["asn"]: row["color"] for row in _asn_breakdown}
+
     return {
         "report": {
             "run_id": run_id,
@@ -707,16 +837,19 @@ def build_pdf_context(
             "trend_pct": kpis.c2_active_trend_pct,
             "items": c2_items,
             "sparkline": _build_sparkline_svg(_series("c2_active_count", kpis.c2_active_count)),
-            "map_svg": _build_world_map_svg(c2_items),
-            "malware_family_breakdown": (
-                _mf_breakdown := _chip_breakdown(c2_items, "malware_family", "malware_family", _TOP_N_COUNTRIES)
-            ),
+            "map_svg": _build_world_map_svg(c2_items, _malware_color_by_name),
+            "malware_family_breakdown": _mf_breakdown,
             "malware_family_chart": _build_mini_bar_chart_svg(_mf_breakdown, "malware_family"),
-            "top_asn": (_asn_breakdown := _chip_breakdown(c2_items, "asn", "asn", _TOP_N_COUNTRIES)),
+            "top_asn": _asn_breakdown,
             "top_asn_chart": _build_mini_bar_chart_svg(_asn_breakdown, "asn"),
-            "open_ports_breakdown": (_ports_breakdown := _open_ports_breakdown(c2_items, _TOP_N_COUNTRIES)),
+            "open_ports_breakdown": _ports_breakdown,
             "open_ports_chart": _build_mini_bar_chart_svg(_ports_breakdown, "port"),
             "cross_confirmed": c2_cross_confirmed,
+            # Mappings nom -> couleur (mêmes valeurs que le champ "color" des breakdowns
+            # ci-dessus) — consommés directement par le template pour colorer les cellules
+            # "Malware family"/"ASN" du tableau, cf. CDC Phase B point 8.
+            "malware_color_by_name": _malware_color_by_name,
+            "asn_color_by_name": _asn_color_by_name,
         },
         "malicious_urls": {
             "online_count": kpis.malicious_url_count,
@@ -763,7 +896,7 @@ def build_pdf_context(
             "period_start": period_start_str,
             "period_end": period_end_str,
             "generated_at": generated_at_str,
-            "sources": _SOURCES,
+            "sources_by_category": _sources_by_category(_SOURCES),
             "pipeline_duration_seconds": round(pipeline_duration_seconds, 2),
         },
     }

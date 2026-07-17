@@ -536,7 +536,7 @@ def _build_top_ips(
     return result
 
 
-async def run(force_refresh: bool = False) -> dict:
+async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
     started_at = time.monotonic()
     settings = load_settings()
     settings = _override_force_refresh(settings, force_refresh)
@@ -558,7 +558,10 @@ async def run(force_refresh: bool = False) -> dict:
 
     sources_status: dict[str, str] = {}
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    # follow_redirects=True : openphish.com/feed.txt répond en 302 vers GitHub — non suivi par
+    # défaut par httpx, ce qui faisait ingérer la page HTML de redirection comme si c'était le
+    # flux texte lui-même (root cause du parsing OpenPhish cassé, cf. CLAUDE.md racine).
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         cve_df, nvd_status, cve_high_count = await _run_nvd_source(
             client, settings, run_id, period_start, period_end, base_path, storage_options
         )
@@ -653,6 +656,19 @@ async def run(force_refresh: bool = False) -> dict:
         sources_status["greynoise"] = greynoise_status
         sentry_breadcrumb_run_step("extract_greynoise", greynoise_status)
 
+        source_item_counts: dict[str, int] = {
+            "nvd": cve_df.height,
+            "kev": kev_df.height,
+            "feodo": feodo_df.height,
+            "urlhaus": urlhaus_df.height,
+            "threatfox": len(threatfox_iocs),
+            "openphish": len(openphish_entries),
+            "shodan": len(shodan_data),
+            "spamhaus": len(spamhaus_confirmed),
+            "greynoise": len(greynoise_data),
+        }
+        extract_done_at = time.monotonic()
+
         previous_kpis = _kpis_from_manifest(manifest)
         report_kpis = kpis_module.compute_kpis(
             cve_df, kev_df, ip_frame, urlhaus_df, mean_time_to_kev, previous_kpis, cve_high_count, threatfox_iocs
@@ -662,6 +678,7 @@ async def run(force_refresh: bool = False) -> dict:
         top_ips = _build_top_ips(ranked_ips, geo, shodan_data, spamhaus_confirmed, greynoise_data)
         c2_items = build_c2_items(top_ips)
         malicious_url_items = build_malicious_url_items(ranked_urls)
+        transform_done_at = time.monotonic()
 
         # load
         load_status = "success"
@@ -762,6 +779,13 @@ async def run(force_refresh: bool = False) -> dict:
             report_status = "failed"
             payload["status"] = "failed"
 
+        load_done_at = time.monotonic()
+        step_durations: dict[str, float] = {
+            "extract": extract_done_at - started_at,
+            "transform": transform_done_at - extract_done_at,
+            "load": load_done_at - transform_done_at,
+        }
+
         run_entry = finalize_manifest_and_index(
             run_id=run_id,
             period_start=period_start.isoformat(),
@@ -775,6 +799,9 @@ async def run(force_refresh: bool = False) -> dict:
             pipeline_duration_seconds=pipeline_duration_seconds,
             base_path=base_path,
             storage_options=storage_options,
+            source_item_counts=source_item_counts,
+            step_durations=step_durations,
+            skip_email=skip_email,
         )
 
         # publish_status() est le seul appel du pipeline sans try/except propre — une URL de
@@ -867,6 +894,9 @@ def finalize_manifest_and_index(
     pipeline_duration_seconds: float,
     base_path: str,
     storage_options: dict | None,
+    source_item_counts: dict[str, int] | None = None,
+    step_durations: dict[str, float] | None = None,
+    skip_email: bool = False,
 ) -> dict:
     run_entry = {
         "run_id": run_id,
@@ -874,6 +904,8 @@ def finalize_manifest_and_index(
         "period_end": period_end,
         "status": status,
         "sources_status": sources_status,
+        "source_item_counts": source_item_counts or {},
+        "step_durations": step_durations or {},
         "cve_critical_count": kpis.cve_critical_count,
         "kev_new_count": kpis.kev_new_count,
         "c2_active_count": kpis.c2_active_count,
@@ -883,6 +915,7 @@ def finalize_manifest_and_index(
         "s3_json_key": s3_json_key,
         "s3_pdf_key": s3_pdf_key,
         "s3_parquet_keys": s3_parquet_keys,
+        "skip_email": skip_email,
         "created_at": datetime.now(UTC).isoformat(),
     }
 
@@ -908,8 +941,9 @@ def main() -> None:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--force-refresh", action="store_true")
+    parser.add_argument("--skip-email", action="store_true")
     args = parser.parse_args()
-    asyncio.run(run(force_refresh=args.force_refresh))
+    asyncio.run(run(force_refresh=args.force_refresh, skip_email=args.skip_email))
 
 
 if __name__ == "__main__":
