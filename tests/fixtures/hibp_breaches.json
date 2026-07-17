@@ -1,0 +1,28 @@
+[
+  {
+    "Name": "ExampleCorp",
+    "Title": "ExampleCorp",
+    "Domain": "example.com",
+    "BreachDate": "2026-06-01",
+    "AddedDate": "2026-06-05T10:00:00Z",
+    "PwnCount": 1200000,
+    "DataClasses": ["Email addresses", "Passwords"],
+    "IsVerified": true,
+    "IsFabricated": false,
+    "IsSensitive": false,
+    "Description": "Example breach description."
+  },
+  {
+    "Name": "OldLeakSite",
+    "Title": "Old Leak Site",
+    "Domain": "oldleak.example",
+    "BreachDate": "2020-01-01",
+    "AddedDate": "2020-01-10T10:00:00Z",
+    "PwnCount": 500,
+    "DataClasses": ["Email addresses"],
+    "IsVerified": false,
+    "IsFabricated": false,
+    "IsSensitive": false,
+    "Description": "An old breach, outside any current report window."
+  }
+]

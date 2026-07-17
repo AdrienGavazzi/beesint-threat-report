@@ -33,6 +33,7 @@ jobs:
       BACKEND_WEBHOOK_URL: ${{ secrets.BACKEND_WEBHOOK_URL }}
       SENTRY_DSN_THREAT_REPORT: ${{ secrets.SENTRY_DSN_THREAT_REPORT }}
       THREATFOX_AUTH_KEY: ${{ secrets.THREATFOX_AUTH_KEY }}
+      GREYNOISE_API_KEY: ${{ secrets.GREYNOISE_API_KEY }}
     steps:
       - uses: actions/checkout@v5
 

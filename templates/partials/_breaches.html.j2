@@ -1,0 +1,60 @@
+<section class="section" id="sec-breaches">
+  <h2 class="section-title">Breaches This Week</h2>
+  <p class="section-desc">New data breaches indexed by HaveIBeenPwned this week — accounts, credentials and personal data newly exposed to attackers.</p>
+
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="value">{{ breaches.new_count }}</div>
+      <div class="label">New breaches indexed</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ breaches.total_accounts_exposed }}</div>
+      <div class="label">Accounts exposed</div>
+    </div>
+  </div>
+
+  {% if breaches.spotlight %}
+  <div class="chart-card chart-card--full" style="margin-top: 16px;">
+    <p class="chart-card-title">Spotlight — most impactful breach this week</p>
+    <p class="exec-summary">
+      <strong>{{ breaches.spotlight.name }}</strong>{% if breaches.spotlight.domain %} ({{ breaches.spotlight.domain }}){% endif %}
+      — {{ breaches.spotlight.pwn_count_formatted }} accounts, {{ breaches.spotlight.breach_date | fmt_date_short }}
+      {% if breaches.spotlight.is_verified %}<span class="badge badge-neutral">Verified</span>{% endif %}
+      {% if breaches.spotlight.is_sensitive %}<span class="badge badge-error">Sensitive</span>{% endif %}
+    </p>
+    {% if breaches.spotlight.description %}
+    <p class="section-desc">{{ breaches.spotlight.description }}</p>
+    {% endif %}
+    {% if breaches.spotlight.data_classes %}
+    <div class="chip-list">
+      {% for dc in breaches.spotlight.data_classes %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ dc }}</span>{% endfor %}
+    </div>
+    {% endif %}
+    {% if breaches.spotlight.breachdirectory_count %}
+    <p class="section-desc" style="margin-top: 8px; margin-bottom: 0;">Also cross-checked in BreachDirectory ({{ breaches.spotlight.breachdirectory_count }} matching entries).</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if breaches.severity_donut or breaches.impact_chart %}
+  <div class="chart-row">
+    {% if breaches.severity_donut %}
+    <div class="chart-card">
+      <p class="chart-card-title">Severity split (by data exposed)</p>
+      <div class="donut-row">
+        {{ breaches.severity_donut | safe }}
+        <div class="chart-legend">
+          {% for row in breaches.severity_breakdown %}<span class="chart-legend-item"><span class="chart-legend-dot" style="background:{{ row.color }}"></span>{{ row.severity }} ({{ row.count }})</span>{% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    {% if breaches.impact_chart %}
+    <div class="chart-card">
+      <p class="chart-card-title">Accounts exposed by breach</p>
+      {{ breaches.impact_chart | safe }}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>

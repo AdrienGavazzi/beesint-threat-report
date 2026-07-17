@@ -44,6 +44,7 @@ _SECTION_TITLES = [
     "Mean-Time-to-KEV",
     "Active C2 Infrastructure",
     "Malicious URLs Online",
+    "Breaches This Week",
     "Top 10 Countries",
     "Top Vendors",
     "CWE Breakdown",
@@ -106,7 +107,13 @@ def minimal_context() -> dict:
             "urgency_flag": True,
             "sparkline": None,
         },
-        "mttk": {"average_days": 4.5, "median_days": 3.0, "sample_size": 1, "gauge_svg": None},
+        "mttk": {
+            "average_days": 4.5,
+            "median_days": 3.0,
+            "sample_size": 1,
+            "gauge_svg": None,
+            "remediation_window_days": 14.0,
+        },
         "c2": {
             "active_count": 1,
             "trend_pct": None,
@@ -120,25 +127,27 @@ def minimal_context() -> dict:
                     "last_online": "2026-06-05",
                     "confirmed_by_spamhaus": True,
                     "greynoise_classification": "malicious",
+                    # Couleur par rang IP (cf. CDC Phase P4 "color by IP") — consommée par la
+                    # colonne IP du tableau (style inline), plus par malware_family/ASN.
+                    "color": "#0EA5E9",
                 }
             ],
             "sparkline": None,
-            # SVG minimal non-None : exerce le nouveau bloc légende de carte (couleurs par rang,
-            # cf. CDC Phase B point 8) dans test_render_pdf_c2_map_legend_matches_table_colors.
+            # SVG minimal non-None : exerce le bloc légende de carte (formes par malware family,
+            # cf. CDC Phase P4) dans test_render_pdf_c2_map_legend_shows_shape_icons.
             "map_svg": '<svg viewBox="0 0 10 10" class="world-map"><circle cx="5" cy="5" r="2"/></svg>',
             "malware_family_breakdown": [
-                {"malware_family": "Heodo", "count": 1, "pct_of_total": 100.0, "color": "#0EA5E9"}
+                {"malware_family": "Heodo", "count": 1, "pct_of_total": 100.0, "color": "#EF4444"}
             ],
-            "malware_family_chart": None,
-            "top_asn": [{"asn": "AS64500 EXAMPLE-AS", "count": 1, "pct_of_total": 100.0, "color": "#0EA5E9"}],
-            "top_asn_chart": None,
-            "open_ports_breakdown": [{"port": 443, "count": 1, "pct_of_total": 100.0, "color": "#0EA5E9"}],
-            "open_ports_chart": None,
+            "malware_family_chart": '<svg class="stacked-bar"></svg>',
+            "top_asn": [{"asn": "AS64500 EXAMPLE-AS", "count": 1, "pct_of_total": 100.0, "color": "#38BDF8"}],
+            "top_asn_chart": '<svg class="stacked-bar"></svg>',
+            "open_ports_breakdown": [{"port": 443, "count": 1, "pct_of_total": 100.0, "color": "#A855F7"}],
+            "open_ports_chart": '<svg class="stacked-bar"></svg>',
             "cross_confirmed": {"confirmed": 1, "total": 1},
-            # Mappings nom -> couleur consommés par le tableau (cellules Malware family/ASN),
-            # même valeur que malware_family_breakdown/top_asn[0]["color"] ci-dessus.
-            "malware_color_by_name": {"Heodo": "#0EA5E9"},
-            "asn_color_by_name": {"AS64500 EXAMPLE-AS": "#0EA5E9"},
+            # Légende de formes (map-legend, template) — liste template-ready, cf.
+            # pdf_context.py::build_pdf_context _family_shape_legend.
+            "family_shapes": [{"malware_family": "Heodo", "icon_svg": '<svg class="shape-icon"></svg>'}],
         },
         "malicious_urls": {
             "online_count": 2,
@@ -156,6 +165,27 @@ def minimal_context() -> dict:
             "trend_chart": None,
             "threat_type_breakdown": [{"threat_type": "malware_download", "count": 1, "pct_of_total": 100.0}],
             "threat_type_chart": None,
+        },
+        "breaches": {
+            "new_count": 1,
+            "total_accounts_exposed": "1.2M",
+            "spotlight": {
+                "name": "ExampleCorp",
+                "domain": "example.com",
+                "breach_date": "2026-06-01",
+                "added_date": "2026-06-05",
+                "pwn_count": 1200000,
+                "pwn_count_formatted": "1.2M",
+                "data_classes": ["Email addresses", "Passwords"],
+                "severity": "CRITICAL",
+                "is_verified": True,
+                "is_sensitive": False,
+                "description": "Example breach description.",
+                "breachdirectory_count": 3,
+            },
+            "severity_breakdown": [{"severity": "CRITICAL", "count": 1, "pct_of_total": 100.0, "color": "#EF4444"}],
+            "severity_donut": None,
+            "impact_chart": None,
         },
         "threatfox": {"enabled": False, "families_count": 0, "families_trend_pct": None, "sparkline": None},
         "geo": {
@@ -346,13 +376,34 @@ def test_lineage_template_has_no_card_look():
     assert "lineage-list" in template_src
 
 
-def test_render_html_c2_table_and_map_legend_share_rank_colors():
-    # Point 8 : la couleur de la cellule "Malware family"/"ASN" en table doit matcher la couleur
-    # du point sur la carte / de l'entrée de légende, via le même mapping malware_color_by_name
-    # (couleur inline non observable via extraction de texte PDF — assertion sur le HTML brut).
+def test_render_html_c2_ip_column_colored_asn_and_malware_plain():
+    # CDC Phase P4 ("color by IP") : la colonne IP porte désormais la couleur de rang (couleur
+    # inline non observable via extraction de texte PDF — assertion sur le HTML brut) ; ASN et
+    # Malware family redeviennent des colonnes plates dans le tableau (plus de mapping nom ->
+    # couleur partagé avec le tableau).
     html = _render_html(minimal_context())
-    assert 'style="color: #0EA5E9;"' in html
-    assert "background:#0EA5E9" in html  # dot de légende sous la carte (.map-legend)
+    assert 'style="color: #0EA5E9;">203.0.113.10</td>' in html
+    assert '<td class="mono">AS64500 EXAMPLE-AS</td>' in html
+    assert "<td>Heodo</td>" in html
+
+
+def test_render_html_c2_map_legend_shows_shape_icons_not_color_list():
+    # La légende sous la carte porte désormais des formes (icon_svg pré-rendu par famille, cf.
+    # pdf_context.py _build_shape_icon_svg) — plus une liste de couleurs, la couleur du point
+    # étant maintenant celle de la colonne IP, pas de la famille.
+    html = _render_html(minimal_context())
+    assert '<svg class="shape-icon">' in html
+    assert "Point color matches the IP column" in html
+
+
+def test_render_html_c2_breakdown_legends_use_their_own_dedicated_palette():
+    # Les 3 breakdowns (malware family/ASN/ports) gardent chacun leur propre couleur de rang
+    # (palettes dédiées, distinctes de la couleur IP et les unes des autres) dans la légende sous
+    # la barre empilée — cf. minimal_context() fixture, 3 couleurs distinctes attendues.
+    html = _render_html(minimal_context())
+    assert "background:#EF4444" in html  # malware_family_breakdown[0].color
+    assert "background:#38BDF8" in html  # top_asn[0].color
+    assert "background:#A855F7" in html  # open_ports_breakdown[0].color
 
 
 def test_c2_table_signals_column_has_no_stray_bullet_character():
@@ -369,3 +420,247 @@ def test_bee_logo_asset_is_compressed():
     # taille fichier plutôt que sur les dimensions exactes (Pillow non garanti disponible partout).
     asset_path = _TEMPLATE_DIR / "assets" / "bee_yellow_only.png"
     assert asset_path.stat().st_size < 50_000
+
+
+# ---- Phase P1 (fixes CSS/markup isolés) ------------------------------------------------------
+
+
+def test_report_css_chart_card_full_has_10px_right_margin_not_0():
+    # .chart-card--full doit garder 10px de marge droite (pas 0) pour aligner son bord droit avec
+    # celui des .kpi-card au-dessus (qui ne perdent que 10px sur leur dernière colonne) — un 0px nu
+    # laissait un décalage de 6px visible au rendu réel.
+    css = _REPORT_CSS_PATH.read_text(encoding="utf-8")
+    block = css.split(".chart-card--full {", 1)[1].split("}", 1)[0]
+    assert "flex: 1 1 100%;" in block
+    assert "margin: 0 10px 16px 0;" in block
+
+
+def test_report_css_donut_row_legend_uses_free_space():
+    css = _REPORT_CSS_PATH.read_text(encoding="utf-8")
+    donut_row_block = css.split(".donut-row {", 1)[1].split("}", 1)[0]
+    assert "justify-content: space-between;" in donut_row_block
+    legend_block = css.split(".donut-row .chart-legend {", 1)[1].split("}", 1)[0]
+    assert "flex: 1 1 auto;" in legend_block
+
+
+def test_report_css_value_run_id_truncates_with_ellipsis():
+    css = _REPORT_CSS_PATH.read_text(encoding="utf-8")
+    block = css.split(".kpi-card .value--run-id {", 1)[1].split("}", 1)[0]
+    assert "text-overflow: ellipsis;" in block
+    assert "white-space: nowrap;" in block
+
+
+def test_malicious_urls_template_uses_chart_card_full_class_not_inline_style():
+    template_src = (_TEMPLATE_DIR / "partials" / "_malicious_urls.html.j2").read_text(encoding="utf-8")
+    assert "chart-card--full" in template_src
+    assert "flex-basis: 100%" not in template_src
+
+
+def test_lineage_template_uses_value_run_id_class_not_inline_style():
+    template_src = (_TEMPLATE_DIR / "partials" / "_lineage.html.j2").read_text(encoding="utf-8")
+    assert "value--run-id" in template_src
+    assert 'style="font-size: 12px; font-family: var(--font-mono);">{{ lineage.run_id }}' not in template_src
+
+
+# ---- Phase P7 (cover page brand-text bleed) --------------------------------------------------
+
+
+def test_render_pdf_cover_page_has_no_recurring_brand_footer_text(tmp_path):
+    # Regression guard for the bug this phase fixes: the recurring @bottom-left/@top-right
+    # "BeeSINT — beesint.com" margin-box text used to bleed onto the cover page (page 0) because
+    # `@page :first` couldn't override the base `@page` rule's margin-box `content` on WeasyPrint
+    # 62.3 (confirmed empirically — `content: none` and `content: "";` both still leaked). Fixed
+    # via a named page (`page: cover` on `.cover` + `@page cover { ... }`), a fully separate page
+    # context rather than a cascade override attempt.
+    output_path = tmp_path / "report.pdf"
+    render_pdf(minimal_context(), output_path)
+
+    reader = PdfReader(str(output_path))
+    cover_text = reader.pages[0].extract_text() or ""
+    assert "beesint.com" not in cover_text.lower()
+
+
+def test_report_css_cover_uses_named_page_not_first_pseudo_class():
+    css = _REPORT_CSS_PATH.read_text(encoding="utf-8")
+    assert "page: cover;" in css
+    assert "@page cover {" in css
+    assert "@page :first {" not in css
+
+
+# ---- Phase P8 (border-radius: cards get sharp corners) ---------------------------------------
+
+
+def test_report_css_card_radius_tokens_are_zero():
+    # Cards (.kpi-card/.chart-card/.map-frame all use --radius-md) get sharp corners — explicit
+    # DA request. --radius-full stays a pill (chips are tags, not cards).
+    css = _REPORT_CSS_PATH.read_text(encoding="utf-8")
+    root_block = css.split(":root {", 1)[1].split("}", 1)[0]
+    assert "--radius-md: 0px;" in root_block
+    assert "--radius-lg: 0px;" in root_block
+    assert "--radius-full: 9999px;" in root_block
+
+
+# ---- Phase P2 (TOC paginé + restructuration Executive Summary) -------------------------------
+
+_SEC_IDS = [
+    "sec-executive-summary",
+    "sec-sources-status",
+    "sec-cve-critical",
+    "sec-kev",
+    "sec-mttk",
+    "sec-c2-infra",
+    "sec-malicious-urls",
+    "sec-breaches",
+    "sec-top-countries",
+    "sec-top-vendors",
+    "sec-cwe-breakdown",
+    "sec-lineage",
+]
+
+
+def test_report_css_toc_uses_target_counter_for_real_page_numbers():
+    css = _REPORT_CSS_PATH.read_text(encoding="utf-8")
+    assert "target-counter(attr(href), page)" in css
+
+
+def test_summary_template_is_pure_toc_kpi_and_chart_moved_out():
+    # Garde-fou : le contenu déplacé vers _executive_summary.html.j2 ne doit pas être dupliqué ici.
+    template_src = (_TEMPLATE_DIR / "partials" / "_summary.html.j2").read_text(encoding="utf-8")
+    assert "toc-list" in template_src
+    assert "kpi-grid" not in template_src
+    assert "chart-row" not in template_src
+
+
+def test_executive_summary_template_has_kpi_grid_and_chart_card_full():
+    template_src = (_TEMPLATE_DIR / "partials" / "_executive_summary.html.j2").read_text(encoding="utf-8")
+    assert "kpi-grid" in template_src
+    assert "chart-card--full" in template_src
+    assert "flex-basis: 100%" not in template_src
+
+
+def test_render_pdf_toc_shows_real_page_numbers(tmp_path):
+    output_path = tmp_path / "report.pdf"
+    render_pdf(minimal_context(), output_path)
+
+    reader = PdfReader(str(output_path))
+    # Contents is page 2 (page 1 = cover), sections start after it — every TOC page number must be
+    # a real page reference (>= 2), never "0" or missing (would indicate target-counter silently
+    # failed to resolve on this WeasyPrint version).
+    contents_text = reader.pages[1].extract_text() or ""
+    assert "New critical CVEs" in contents_text
+
+
+def test_all_toc_target_ids_present_in_rendered_html():
+    # Chaque href="#sec-x" du sommaire doit correspondre à un id="sec-x" réellement présent
+    # ailleurs dans le document — sinon target-counter ne peut rien résoudre (page vide/absente).
+    html = _render_html(minimal_context())
+    for sec_id in _SEC_IDS:
+        assert f'id="{sec_id}"' in html, f"missing anchor id={sec_id!r} referenced by the TOC"
+
+
+# ---- Phase P3 (nouvelle métrique MTTK : CISA remediation window) ------------------------------
+
+
+def test_mttk_template_has_sec_id_anchor():
+    template_src = (_TEMPLATE_DIR / "partials" / "_mttk.html.j2").read_text(encoding="utf-8")
+    assert 'id="sec-mttk"' in template_src
+
+
+def test_mttk_template_renders_remediation_card_unconditionally():
+    # La nouvelle carte doit apparaître que sample_size soit > 0 ou == 0 (contrairement au
+    # gauge/kpi-column, restés conditionnels) — c'est tout l'intérêt de cette métrique "toujours
+    # peuplée" à côté du gauge honnête.
+    template_src = (_TEMPLATE_DIR / "partials" / "_mttk.html.j2").read_text(encoding="utf-8")
+    assert "mttk-remediation-card" in template_src
+    # La carte de remédiation ne doit pas être à l'intérieur du bloc conditionnel sample_size > 0
+    # (sinon elle disparaîtrait avec le gauge sur un cold start) — la marque de fin de bloc
+    # conditionnel doit précéder la carte de remédiation dans le texte source.
+    assert template_src.index("{% endif %}") < template_src.index("mttk-remediation-card")
+
+
+def test_render_pdf_mttk_remediation_card_shows_even_with_zero_sample_size(tmp_path):
+    context = minimal_context()
+    context["mttk"]["sample_size"] = 0
+    context["mttk"]["average_days"] = None
+    context["mttk"]["median_days"] = None
+    context["mttk"]["gauge_svg"] = None
+    context["mttk"]["remediation_window_days"] = 9.5
+
+    output_path = tmp_path / "report.pdf"
+    render_pdf(context, output_path)
+
+    reader = PdfReader(str(output_path))
+    # .kpi-card .label est en text-transform:uppercase (CSS), même raison que
+    # test_render_pdf_all_section_titles_present pour la casse comparée en upper().
+    full_text_upper = "\n".join(page.extract_text() or "" for page in reader.pages).upper()
+    assert "9.5" in full_text_upper
+    assert "CISA REMEDIATION WINDOW" in full_text_upper
+
+
+def test_report_css_mttk_kpi_column_has_margin_for_third_card():
+    css = _REPORT_CSS_PATH.read_text(encoding="utf-8")
+    kpi_column_block = css.split(".mttk-kpi-column {", 1)[1].split("}", 1)[0]
+    assert "flex: 1 1 160px;" in kpi_column_block
+    assert "margin: 0 16px 16px 0;" in kpi_column_block
+    assert ".mttk-remediation-card {" in css
+
+
+# ---- Phase P5 (nouvelle section "Breaches This Week") -----------------------------------------
+
+
+def test_breaches_template_has_sec_id_anchor():
+    template_src = (_TEMPLATE_DIR / "partials" / "_breaches.html.j2").read_text(encoding="utf-8")
+    assert 'id="sec-breaches"' in template_src
+
+
+def test_summary_template_toc_has_breaches_entry():
+    # Second passage assumé sur _summary.html.j2 (cf. CDC Phase P5) — 10e entrée TOC ajoutée une
+    # fois la section existante, la seule exception documentée à "un seul passage par fichier".
+    template_src = (_TEMPLATE_DIR / "partials" / "_summary.html.j2").read_text(encoding="utf-8")
+    assert 'href="#sec-breaches"' in template_src
+    assert "Breaches this week" in template_src
+
+
+def test_report_html_includes_breaches_right_after_malicious_urls():
+    template_src = (_TEMPLATE_DIR / "report.html.j2").read_text(encoding="utf-8")
+    malicious_urls_pos = template_src.index('partials/_malicious_urls.html.j2"')
+    breaches_pos = template_src.index('partials/_breaches.html.j2"')
+    top_countries_pos = template_src.index('partials/_top_countries.html.j2"')
+    assert malicious_urls_pos < breaches_pos < top_countries_pos
+
+
+def test_render_pdf_breaches_section_shows_spotlight_donut_and_bar_chart(tmp_path):
+    context = minimal_context()
+    context["breaches"]["severity_donut"] = (
+        '<svg viewBox="0 0 10 10" class="severity-donut"><circle cx="5" cy="5" r="2"/></svg>'
+    )
+    context["breaches"]["impact_chart"] = '<svg viewBox="0 0 10 10" class="mini-bar-chart"></svg>'
+
+    output_path = tmp_path / "report.pdf"
+    render_pdf(context, output_path)
+
+    reader = PdfReader(str(output_path))
+    full_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    full_text_upper = full_text.upper()
+    assert "BREACHES THIS WEEK" in full_text_upper
+    assert "ExampleCorp" in full_text
+    assert "1.2M" in full_text
+    assert "Also cross-checked in BreachDirectory" in full_text
+
+
+def test_render_pdf_breaches_section_degrades_gracefully_with_no_new_breaches(tmp_path):
+    # RAPIDAPI_KEY absente / aucune nouvelle breach ce run -> la section ne doit jamais faire
+    # planter le rendu (cf. CDC "never block the pipeline").
+    context = minimal_context()
+    context["breaches"] = {
+        "new_count": 0,
+        "total_accounts_exposed": "0",
+        "spotlight": None,
+        "severity_breakdown": [],
+        "severity_donut": None,
+        "impact_chart": None,
+    }
+
+    output_path = tmp_path / "report.pdf"
+    render_pdf(context, output_path)
+    assert output_path.exists()

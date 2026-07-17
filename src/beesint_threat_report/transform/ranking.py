@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
 
 
@@ -33,3 +35,12 @@ def rank_top_n_urls(df: pl.DataFrame, n: int) -> pl.DataFrame:
         by=["is_new", "date_added", "url"],
         descending=[True, True, False],
     ).head(n)
+
+
+def rank_top_n_breaches(entries: list[Any], n: int) -> list[Any]:
+    """Classé par comptes exposés (pwn_count) décroissant — même principe "impact d'abord" que
+    rank_top_n_ips (is_new prioritaire)/rank_top_n_urls (sources_count prioritaire).
+    `entries` : list[BreachEntry] — pas un DataFrame polars, même style list-based que
+    ThreatFoxIoc (cf. orchestrate.py::_run_threatfox_source, qui ne convertit jamais ThreatFox en
+    DataFrame non plus)."""
+    return sorted(entries, key=lambda entry: entry.pwn_count, reverse=True)[:n]

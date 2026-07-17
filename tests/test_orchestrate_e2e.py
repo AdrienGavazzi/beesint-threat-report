@@ -20,6 +20,7 @@ SHODAN_URL_REGEX = r"https://internetdb\.shodan\.io/.*"
 SPAMHAUS_DROP_URL = "https://www.spamhaus.org/drop/drop.txt"
 SPAMHAUS_EDROP_URL = "https://www.spamhaus.org/drop/edrop.txt"
 OPENPHISH_URL = "https://openphish.com/feed.txt"
+HIBP_URL = "https://haveibeenpwned.com/api/v3/breaches"
 
 BUCKET = "test-threat-report-bucket"
 
@@ -109,6 +110,12 @@ def _mock_all_sources(mock, feodo_up: bool = True):
     # "feed vide" pour la même raison que Shodan/Spamhaus ci-dessus : le merge est déjà testé
     # dans test_transform_openphish_merge.py.
     mock.get(OPENPHISH_URL).mock(return_value=httpx.Response(200, text=""))
+    # HIBP (Breaches This Week, cf. CDC Phase P5) — flux public sans clé, toujours appelé. Mocké
+    # "catalogue vide" pour la même raison que Shodan/Spamhaus/OpenPhish ci-dessus : le contenu
+    # est déjà testé dans test_extract_hibp.py / test_pdf_context.py, ce fichier ne teste que
+    # l'orchestration S3/statuts. BreachDirectory n'a pas besoin de mock : rapidapi_key est absente
+    # de _settings() ci-dessous, donc "skipped:no_api_key" avant tout appel réseau.
+    mock.get(HIBP_URL).mock(return_value=httpx.Response(200, json=[]))
 
 
 @pytest.mark.asyncio

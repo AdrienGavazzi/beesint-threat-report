@@ -1,4 +1,4 @@
-<section class="section">
+<section class="section" id="sec-c2-infra">
   <h2 class="section-title">Active C2 Infrastructure</h2>
   <p class="section-desc">Command-and-control servers currently online — the machines malware "phones home" to for instructions and stolen data.</p>
   <div class="kpi-grid">
@@ -31,9 +31,10 @@
   <div class="map-frame">
     {{ c2.map_svg | safe }}
   </div>
-  {% if c2.malware_family_breakdown %}
+  <p class="chart-card-title" style="margin-top: 8px;">Point color matches the IP column in the table below. Shape identifies malware family:</p>
+  {% if c2.family_shapes %}
   <div class="chart-legend map-legend">
-    {% for item in c2.malware_family_breakdown %}<span class="chart-legend-item"><span class="chart-legend-dot" style="background:{{ item.color }}"></span>{{ item.malware_family }}</span>{% endfor %}
+    {% for entry in c2.family_shapes %}<span class="chart-legend-item">{{ entry.icon_svg | safe }} {{ entry.malware_family }}</span>{% endfor %}
   </div>
   {% endif %}
   {% endif %}
@@ -54,10 +55,10 @@
     <tbody>
       {% for item in c2['items'] %}
       <tr>
-        <td class="mono">{{ item.ip_address }}</td>
+        <td class="mono" style="color: {{ item.color }};">{{ item.ip_address }}</td>
         <td>{{ item.country if item.country else "N/A" }}</td>
-        <td class="mono"{% if c2.asn_color_by_name.get(item.asn) %} style="color: {{ c2.asn_color_by_name.get(item.asn) }};"{% endif %}>{{ item.asn if item.asn else "N/A" }}</td>
-        <td{% if c2.malware_color_by_name.get(item.malware_family) %} style="color: {{ c2.malware_color_by_name.get(item.malware_family) }};"{% endif %}>{{ item.malware_family if item.malware_family else "N/A" }}</td>
+        <td class="mono">{{ item.asn if item.asn else "N/A" }}</td>
+        <td>{{ item.malware_family if item.malware_family else "N/A" }}</td>
         <td>{{ item.first_seen | fmt_date_short if item.first_seen else "N/A" }}</td>
         <td>{{ item.last_online | fmt_date_short if item.last_online else "N/A" }}</td>
         <td>
@@ -77,6 +78,9 @@
       <p class="chart-card-title">Malware family breakdown</p>
       {% if c2.malware_family_chart %}
       {{ c2.malware_family_chart | safe }}
+      <div class="chart-legend">
+        {% for item in c2.malware_family_breakdown %}<span class="chart-legend-item"><span class="chart-legend-dot" style="background:{{ item.color }}"></span>{{ item.malware_family }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
+      </div>
       {% else %}
       <div class="chip-list">
         {% for item in c2.malware_family_breakdown %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.malware_family }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
@@ -90,6 +94,9 @@
       <p class="chart-card-title">Top ASN / hosting</p>
       {% if c2.top_asn_chart %}
       {{ c2.top_asn_chart | safe }}
+      <div class="chart-legend">
+        {% for item in c2.top_asn %}<span class="chart-legend-item"><span class="chart-legend-dot" style="background:{{ item.color }}"></span>{{ item.asn }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
+      </div>
       {% else %}
       <div class="chip-list">
         {% for item in c2.top_asn %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.asn }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
@@ -103,6 +110,9 @@
       <p class="chart-card-title">Top open ports (Shodan InternetDB)</p>
       {% if c2.open_ports_chart %}
       {{ c2.open_ports_chart | safe }}
+      <div class="chart-legend">
+        {% for item in c2.open_ports_breakdown %}<span class="chart-legend-item"><span class="chart-legend-dot" style="background:{{ item.color }}"></span>{{ item.port }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
+      </div>
       {% else %}
       <div class="chip-list">
         {% for item in c2.open_ports_breakdown %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.port }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}

@@ -9,6 +9,7 @@ from beesint_threat_report.load.countries import country_name
 from beesint_threat_report.load.cwe_names import cwe_name
 from beesint_threat_report.load.world_borders_path import WORLD_BORDERS_PATH_D
 from beesint_threat_report.load.world_map_path import WORLD_LANDMASS_PATH_D
+from beesint_threat_report.transform.breaches import severity_bucket
 from beesint_threat_report.transform.kpis import ReportKpis
 
 _TOP_N_COUNTRIES = 10
@@ -108,11 +109,9 @@ _MAP_BORDER_COLOR = "#4A6080"  # --color-entity-other, réutilisé comme gris-bl
 # Palette catégorielle "rang -> couleur", tokens --color-entity-* du design system frontend (cf.
 # CLAUDE.md racine, ENTITY_COLORS dans beesint-frontend/src/types/index.ts) — copiés ici au même
 # titre que les autres tokens dupliqués en tête de report.css (repos indépendants, à
-# resynchroniser manuellement si la DA change côté frontend). Assignation déterministe par rang
-# (index 0 = valeur la plus fréquente d'un classement déjà trié par _chip_breakdown) : UNE SEULE
-# constante consommée à la fois par les mini-bar-charts (barres), la carte C2 (points) et les
-# cellules de tableau correspondantes (malware family/ASN), pour qu'un même nom ait toujours la
-# même couleur partout où il apparaît dans la section C2.
+# resynchroniser manuellement si la DA change côté frontend). Défaut de _attach_rank_colors ci-
+# dessous — reste utilisée par threat_type_breakdown (malicious URLs) et tout futur breakdown qui
+# n'a pas besoin d'une palette dédiée.
 _RANK_COLOR_TOKENS = [
     "#0EA5E9",  # --color-entity-domain
     "#f59e0b",  # --color-entity-ip
@@ -124,17 +123,170 @@ _RANK_COLOR_TOKENS = [
     "#4A6080",  # --color-entity-other
 ]
 
+# C2 infra redesign (CDC Phase P4) — "color by IP" : chaque ligne IP (carte + colonne IP du
+# tableau) porte SA PROPRE couleur de rang, plus par malware_family. Palette large/générique
+# (c'est le point le plus visible de la section) — distincte des 3 palettes dédiées ci-dessous
+# pour qu'un point sur la carte ne soit jamais confondu avec une couleur de breakdown.
+_IP_COLOR_TOKENS = [
+    "#0EA5E9",  # --color-primary
+    "#F59E0B",  # --color-accent-gold
+    "#22C55E",  # --color-success
+    "#A855F7",  # --color-entity-organization
+    "#EC4899",  # --color-entity-certificate
+    "#06B6D4",  # --color-entity-username
+    "#EF4444",  # --color-error
+    "#38BDF8",  # --color-primary-light
+    "#F97316",  # orange — hors palette entité, hue additionnelle pour les 10 rangs
+    "#84CC16",  # lime — idem
+]
+# 3 palettes dédiées par dimension (malware family / ASN / ports) — teintes distinctes entre
+# elles ET de _IP_COLOR_TOKENS ci-dessus, pour qu'aucune des 4 dimensions colorées de cette
+# section ne se confonde visuellement avec une autre.
+_MALWARE_FAMILY_COLOR_TOKENS = [  # chauds (rouge/orange/ambre)
+    "#EF4444",
+    "#F97316",
+    "#F59E0B",
+    "#FB923C",
+    "#FBBF24",
+    "#FCA5A5",
+    "#DC2626",
+    "#EA580C",
+    "#D97706",
+    "#FDBA74",
+]
+_ASN_COLOR_TOKENS = [  # froids (bleu/cyan)
+    "#0EA5E9",
+    "#38BDF8",
+    "#06B6D4",
+    "#22D3EE",
+    "#0284C7",
+    "#67E8F9",
+    "#0369A1",
+    "#7DD3FC",
+    "#155E75",
+    "#164E63",
+]
+_PORT_COLOR_TOKENS = [  # violet/magenta
+    "#A855F7",
+    "#EC4899",
+    "#C084FC",
+    "#D946EF",
+    "#F472B6",
+    "#9333EA",
+    "#DB2777",
+    "#E879F9",
+    "#7E22CE",
+    "#BE185D",
+]
 
-def _rank_color(rank: int) -> str:
-    return _RANK_COLOR_TOKENS[rank % len(_RANK_COLOR_TOKENS)]
+# Formes de marqueur pour la carte C2 (points), cycle déterministe sur le tri alphabétique des
+# malware_family (pas par rang de fréquence) — stable au sein d'un run, cohérent run-à-run pour
+# les familles récurrentes, sans état persisté entre runs (cf. _family_shape_map).
+_MARKER_SHAPES = ["circle", "triangle", "square", "diamond", "star", "cross"]
+# Couleur neutre pour les icônes de la légende de formes (map-legend) — la légende porte
+# uniquement la forme, pas une couleur par famille (c'est l'IP qui est colorée maintenant, pas la
+# famille), donc ses icônes restent grises plutôt que d'emprunter une couleur qui suggérerait à
+# tort un mapping couleur<->famille.
+_LEGEND_SHAPE_COLOR = _TEXT_MUTED_COLOR
 
 
-def _attach_rank_colors(rows: list[dict]) -> list[dict]:
-    """Attache `color` (palette ci-dessus, index = position dans `rows`) à une liste déjà triée
-    par _chip_breakdown/_open_ports_breakdown (rang 0 = valeur la plus fréquente). Retourne une
-    NOUVELLE liste de dicts (jamais de mutation en place — ces rows peuvent être réutilisées
-    telles quelles ailleurs)."""
-    return [{**row, "color": _rank_color(i)} for i, row in enumerate(rows)]
+def _rank_color(rank: int, palette: list[str] = _RANK_COLOR_TOKENS) -> str:
+    return palette[rank % len(palette)]
+
+
+def _attach_rank_colors(rows: list[dict], palette: list[str] = _RANK_COLOR_TOKENS) -> list[dict]:
+    """Attache `color` (palette donnée, défaut _RANK_COLOR_TOKENS, index = position dans `rows`)
+    à une liste déjà triée par _chip_breakdown/_open_ports_breakdown (rang 0 = valeur la plus
+    fréquente). Retourne une NOUVELLE liste de dicts (jamais de mutation en place — ces rows
+    peuvent être réutilisées telles quelles ailleurs)."""
+    return [{**row, "color": _rank_color(i, palette)} for i, row in enumerate(rows)]
+
+
+def _family_shape_map(c2_items: list[dict]) -> dict[str, str]:
+    """Assigne une forme fixe par malware_family : tri alphabétique (pas par rang de fréquence,
+    qui varierait d'un run à l'autre pour la même famille) puis cycle sur _MARKER_SHAPES —
+    déterministe et stable, sans état persisté entre runs."""
+    families = sorted({item["malware_family"] for item in c2_items if item.get("malware_family")})
+    return {family: _MARKER_SHAPES[i % len(_MARKER_SHAPES)] for i, family in enumerate(families)}
+
+
+def _polygon_points(cx: float, cy: float, r: float, sides: int, start_deg: float = -90) -> str:
+    points = []
+    for i in range(sides):
+        angle = math.radians(start_deg + i * 360 / sides)
+        points.append(f"{cx + r * math.cos(angle):.1f},{cy + r * math.sin(angle):.1f}")
+    return " ".join(points)
+
+
+def _star_points(cx: float, cy: float, r_outer: float, r_inner: float, spikes: int) -> str:
+    points = []
+    for i in range(spikes * 2):
+        r = r_outer if i % 2 == 0 else r_inner
+        angle = math.radians(-90 + i * 360 / (spikes * 2))
+        points.append(f"{cx + r * math.cos(angle):.1f},{cy + r * math.sin(angle):.1f}")
+    return " ".join(points)
+
+
+def _build_marker_svg(shape: str, x: float, y: float, color: str, r: float = 4.5) -> str:
+    """Un marqueur de carte (point C2) dans une forme déterministe par malware_family (cf.
+    _family_shape_map). Halo translucide commun à toutes les formes (même effet visuel qu'avant,
+    glow autour du point) + forme pleine dessinée par-dessus pour rester distinguable à petite
+    taille. Fallback "circle" (comportement identique à l'ancien rendu) si la forme est inconnue."""
+    halo = f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 3:.1f}" fill="{color}" fill-opacity="0.22"/>'
+    if shape == "square":
+        side = r * 1.6
+        mark = f'<rect x="{x - side / 2:.1f}" y="{y - side / 2:.1f}" width="{side:.1f}" height="{side:.1f}" fill="{color}"/>'
+    elif shape == "triangle":
+        mark = f'<polygon points="{_polygon_points(x, y, r * 1.35, 3)}" fill="{color}"/>'
+    elif shape == "diamond":
+        mark = f'<polygon points="{_polygon_points(x, y, r * 1.35, 4)}" fill="{color}"/>'
+    elif shape == "star":
+        mark = f'<polygon points="{_star_points(x, y, r * 1.5, r * 0.55, 4)}" fill="{color}"/>'
+    elif shape == "cross":
+        stroke_w = r * 0.85
+        mark = (
+            f'<line x1="{x - r * 1.3:.1f}" y1="{y:.1f}" x2="{x + r * 1.3:.1f}" y2="{y:.1f}" '
+            f'stroke="{color}" stroke-width="{stroke_w:.1f}" stroke-linecap="round"/>'
+            f'<line x1="{x:.1f}" y1="{y - r * 1.3:.1f}" x2="{x:.1f}" y2="{y + r * 1.3:.1f}" '
+            f'stroke="{color}" stroke-width="{stroke_w:.1f}" stroke-linecap="round"/>'
+        )
+    else:  # "circle" (défaut/fallback)
+        mark = f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" fill="{color}"/>'
+    return halo + mark
+
+
+def _build_shape_icon_svg(shape: str, size: int = 14) -> str:
+    """Icône autonome (map-legend, formes seules — pas de couleur par famille, cf.
+    _LEGEND_SHAPE_COLOR) — réutilise _build_marker_svg, pas de réimplémentation CSS séparée."""
+    cx = cy = size / 2
+    marker = _build_marker_svg(shape, cx, cy, _LEGEND_SHAPE_COLOR, r=size * 0.28)
+    return f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" class="shape-icon">{marker}</svg>'
+
+
+def _build_stacked_bar_svg(rows: list[dict], width: int = 320, height: int = 22) -> str | None:
+    """Barre horizontale unique empilée à 100% par proportion (pct_of_total) — remplace
+    _build_mini_bar_chart_svg pour les 3 breakdowns C2 (malware family/ASN/ports uniquement,
+    _build_mini_bar_chart_svg reste utilisée telle quelle pour threat_type_chart/impact_chart).
+    Plus compact qu'un bar-chart par ligne — la légende (couleur/nom/count) vit en HTML à côté
+    (template, classes .chart-legend existantes), pas dans le SVG, même séparation que le donut
+    de sévérité CVE (_build_severity_donut_svg + .chart-legend en template)."""
+    if not rows:
+        return None
+    total_pct = sum(row["pct_of_total"] for row in rows) or 100.0
+    x = 0.0
+    segments = []
+    for row in rows:
+        seg_width = (row["pct_of_total"] / total_pct) * width
+        if seg_width <= 0:
+            continue
+        color = row.get("color") or _HISTOGRAM_COLOR
+        segments.append(f'<rect x="{x:.1f}" y="0" width="{seg_width:.1f}" height="{height}" fill="{color}"/>')
+        x += seg_width
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="stacked-bar">'
+        + "".join(segments)
+        + "</svg>"
+    )
 
 
 # Palette catégorielle fixe pour le line chart CVE/KEV/C2 (3 séries, un seul axe partagé —
@@ -183,7 +335,7 @@ def _build_sparkline_svg(
 
 
 def _build_world_map_svg(
-    items: list[dict], dot_color_by_malware: dict[str, str] | None = None, width: int = 480, height: int = 220
+    items: list[dict], family_shapes: dict[str, str] | None = None, width: int = 480, height: int = 220
 ) -> str | None:
     """Scatter équirectangulaire pur SVG (pas de tuiles/basemap : aucun appel réseau depuis le
     rendu PDF, cf. philosophie "continue en dégradé" — un run ETL ne doit jamais dépendre de la
@@ -196,13 +348,19 @@ def _build_world_map_svg(
     silhouette réelle (placeholder) et, une fois superposée à `_MAP_LAND_COLOR`, ne faisait que se
     confondre visuellement avec le contour des continents sans rien ajouter.
 
-    dot_color_by_malware : mapping malware_family -> couleur (palette _RANK_COLOR_TOKENS, cf.
-    _attach_rank_colors) — même dict que celui utilisé pour colorer la colonne "Malware family"
-    du tableau C2, pour qu'un point sur la carte matche toujours la couleur du nom en table.
-    Fallback _MAP_DOT_COLOR si absent (item sans malware_family connue, ou mapping non fourni)."""
-    dot_color_by_malware = dot_color_by_malware or {}
+    Couleur par point = item["color"] (couleur de rang par IP, cf. _attach_rank_colors avec
+    _IP_COLOR_TOKENS — `items` doit donc déjà être passé pré-coloré). Forme par point =
+    family_shapes.get(item["malware_family"]) (cf. _family_shape_map), fallback "circle" si
+    famille inconnue/mapping absent — remplace l'ancien dot_color_by_malware (couleur par
+    malware_family), cf. CDC Phase P4 "color by IP, shape by malware family"."""
+    family_shapes = family_shapes or {}
     points = [
-        (item["lon"], item["lat"], dot_color_by_malware.get(item.get("malware_family"), _MAP_DOT_COLOR))
+        (
+            item["lon"],
+            item["lat"],
+            item.get("color", _MAP_DOT_COLOR),
+            family_shapes.get(item.get("malware_family"), "circle"),
+        )
         for item in items
         if item.get("lat") is not None and item.get("lon") is not None
     ]
@@ -213,12 +371,9 @@ def _build_world_map_svg(
         return (lon + 180) / 360 * width, (90 - lat) / 180 * height
 
     dots = []
-    for lon, lat, color in points:
+    for lon, lat, color, shape in points:
         x, y = _project(lon, lat)
-        dots.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{color}" fill-opacity="0.9" '
-            f'stroke="{color}" stroke-opacity="0.25" stroke-width="5"/>'
-        )
+        dots.append(_build_marker_svg(shape, x, y, color))
 
     # Couleur dédiée, distincte de _GRID_COLOR (qui ne sert plus que de teinte de fallback
     # ailleurs) — _GRID_COLOR partagé entre graticule/silhouette rendait les deux indiscernables
@@ -266,6 +421,45 @@ def _build_severity_donut_svg(critical_count: int, high_count: int, size: int = 
         f'font-family="JetBrains Mono, monospace" font-size="22" font-weight="700">{total}</text>'
         f'<text x="{cx}" y="{cy + 15}" text-anchor="middle" fill="{_TEXT_MUTED_COLOR}" '
         f'font-family="JetBrains Mono, monospace" font-size="8" letter-spacing="1">CVEs</text>'
+        f"</svg>"
+    )
+
+
+def _build_multi_donut_svg(
+    segments: list[tuple[int, str]], center_label: str, size: int = 130, stroke: int = 16
+) -> str | None:
+    """Généralisation N-segments de _build_severity_donut_svg ci-dessus, SANS y toucher (celle-ci
+    reste dédiée à ses 2 segments fixes CVE critical/high, déjà testée) — pour la section Breaches
+    (jusqu'à 4 segments de sévérité CRITICAL/HIGH/MEDIUM/LOW, cf. CDC Phase P5).
+    `segments` : liste de (count, color) dans l'ordre d'affichage voulu — l'ordre de sévérité est
+    fixe/sémantique, pas un tri par fréquence comme _attach_rank_colors."""
+    total = sum(count for count, _ in segments)
+    if total <= 0:
+        return None
+    radius = (size - stroke) / 2
+    circumference = 2 * math.pi * radius
+    cx = cy = size / 2
+
+    arcs = []
+    offset = 0.0
+    for count, color in segments:
+        if count <= 0:
+            continue
+        seg_len = circumference * (count / total)
+        arcs.append(
+            f'<circle cx="{cx}" cy="{cy}" r="{radius}" fill="none" stroke="{color}" '
+            f'stroke-width="{stroke}" stroke-dasharray="{seg_len:.1f} {circumference:.1f}" '
+            f'stroke-dashoffset="-{offset:.1f}" transform="rotate(-90 {cx} {cy})"/>'
+        )
+        offset += seg_len
+
+    return (
+        f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" class="severity-donut">'
+        + "".join(arcs)
+        + f'<text x="{cx}" y="{cy - 3}" text-anchor="middle" fill="{_TEXT_BODY_COLOR}" '
+        f'font-family="JetBrains Mono, monospace" font-size="22" font-weight="700">{total}</text>'
+        f'<text x="{cx}" y="{cy + 15}" text-anchor="middle" fill="{_TEXT_MUTED_COLOR}" '
+        f'font-family="JetBrains Mono, monospace" font-size="8" letter-spacing="1">{center_label}</text>'
         f"</svg>"
     )
 
@@ -437,9 +631,14 @@ def _build_mini_bar_chart_svg(
         bars.append(
             f'<rect x="{label_w}" y="{y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" rx="2" fill="{bar_color}"/>'
         )
+        # _format_breach_count (K/M/B) réutilisée ici bien que nommée pour les breaches : reste
+        # un no-op d'affichage pour les petits comptes existants (malware/threat_type, <1000,
+        # rendus tels quels) et corrige un vrai débordement du <text> hors du viewBox (confirmé
+        # au rendu réel) pour les gros comptes de comptes exposés (impact_chart, Phase P5) — un
+        # compte à 8 chiffres à cette position x dépassait la largeur du SVG.
         bars.append(
             f'<text x="{label_w + bar_w + 6:.1f}" y="{y + bar_h / 2 + 3:.1f}" fill="{_TEXT_BODY_COLOR}" '
-            f'font-family="JetBrains Mono, monospace" font-size="8.5">{row[count_key]}</text>'
+            f'font-family="JetBrains Mono, monospace" font-size="8.5">{_format_breach_count(row[count_key])}</text>'
         )
 
     return (
@@ -751,6 +950,86 @@ def build_malicious_url_items(ranked_urlhaus_df: pl.DataFrame) -> list[dict]:
     return items
 
 
+# Breaches This Week (CDC Phase P5) — couleurs fixes par sévérité (ordinal, pas un rang de
+# fréquence) : mêmes tokens que les autres usages sémantiques de ce fichier (_DONUT_CRITICAL_COLOR/
+# _DONUT_HIGH_COLOR déjà error/warning), étendus à MEDIUM/LOW pour les 4 paliers de severity_bucket.
+_BREACH_SEVERITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+_BREACH_SEVERITY_COLORS = {
+    "CRITICAL": "#EF4444",  # --color-error, = _DONUT_CRITICAL_COLOR
+    "HIGH": "#F59E0B",  # --color-warning, = _DONUT_HIGH_COLOR
+    "MEDIUM": "#0EA5E9",  # --color-primary
+    "LOW": "#22C55E",  # --color-success
+}
+_BREACH_DESC_TRUNCATE_LEN = 140
+
+
+def _format_breach_count(n: int) -> str:
+    """K/M/B — porté de beesint-jobs/jobs/format_c.py::_format_count(). Les comptes de comptes
+    exposés HIBP vont couramment dans les dizaines/centaines de millions ; un entier brut sur une
+    .kpi-card ne serait pas lisible."""
+    if n >= 1_000_000_000:
+        return f"{n / 1_000_000_000:.1f}B"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}K"
+    return str(n)
+
+
+def _breach_severity_breakdown(breach_items: list[dict]) -> list[dict]:
+    """Ordre de sévérité fixe (_BREACH_SEVERITY_ORDER), pas un tri par fréquence comme
+    _chip_breakdown — CRITICAL doit toujours apparaître avant LOW dans la légende/le donut, même
+    si LOW est plus fréquent ce run."""
+    if not breach_items:
+        return []
+    counts: dict[str, int] = dict.fromkeys(_BREACH_SEVERITY_ORDER, 0)
+    for item in breach_items:
+        counts[item["severity"]] = counts.get(item["severity"], 0) + 1
+    total = len(breach_items)
+    return [
+        {
+            "severity": severity,
+            "count": counts[severity],
+            "pct_of_total": round(counts[severity] / total * 100, 1),
+            "color": _BREACH_SEVERITY_COLORS[severity],
+        }
+        for severity in _BREACH_SEVERITY_ORDER
+        if counts[severity] > 0
+    ]
+
+
+def build_breach_items(ranked_breaches: list, breachdirectory_count: int) -> list[dict]:
+    """`ranked_breaches` : list[BreachEntry] déjà classé par pwn_count décroissant (cf.
+    ranking.rank_top_n_breaches) — pas un DataFrame, même style list-based que ThreatFoxIoc.
+    `breachdirectory_count` : cross-check RapidAPI, appliqué uniquement à l'item le plus
+    impactant (rang 0, "spotlight") — le cross-check ne porte que sur LA breach la plus
+    impactante du run, pas sur toutes (cf. CDC Phase P5)."""
+    items = []
+    for rank, entry in enumerate(ranked_breaches):
+        description = entry.description or ""
+        if len(description) > _BREACH_DESC_TRUNCATE_LEN:
+            # "..." ASCII, même raison que build_malicious_url_items ci-dessus (pas de glyphe
+            # unicode "…", absent des webfonts embarqués).
+            description = description[: _BREACH_DESC_TRUNCATE_LEN - 3] + "..."
+        items.append(
+            {
+                "name": entry.title or entry.name,
+                "domain": entry.domain,
+                "breach_date": entry.breach_date.isoformat(),
+                "added_date": entry.added_date.isoformat(),
+                "pwn_count": entry.pwn_count,
+                "pwn_count_formatted": _format_breach_count(entry.pwn_count),
+                "data_classes": entry.data_classes,
+                "severity": severity_bucket(entry.data_classes),
+                "is_verified": entry.is_verified,
+                "is_sensitive": entry.is_sensitive,
+                "description": description,
+                "breachdirectory_count": breachdirectory_count if rank == 0 else None,
+            }
+        )
+    return items
+
+
 def build_pdf_context(
     *,
     run_id: str,
@@ -762,9 +1041,11 @@ def build_pdf_context(
     kev_df: pl.DataFrame,
     mttk_median_days: float | None,
     mttk_sample_size: int,
+    kev_remediation_window_days: float | None,
     feodo_df: pl.DataFrame,
     c2_items: list[dict],
     malicious_url_items: list[dict],
+    breach_items: list[dict],
     pipeline_duration_seconds: float,
     sources_status: dict[str, str],
     is_cold_start: bool,
@@ -780,15 +1061,29 @@ def build_pdf_context(
     threatfox_enabled = sources_status.get("threatfox") == "ok"
     c2_cross_confirmed = _c2_cross_confirmed(c2_items, sources_status)
 
-    # Breakdowns C2 colorés par rang (cf. _attach_rank_colors) — calculés une fois ici, réutilisés
-    # à la fois pour les mini-bar-charts, la légende de la carte et les mappings malware/asn ->
-    # couleur consommés par la carte (dots) et le tableau (cellules), pour qu'un même nom porte
-    # toujours la même couleur partout dans la section C2 (cf. CDC Phase B point 8).
-    _mf_breakdown = _attach_rank_colors(_chip_breakdown(c2_items, "malware_family", "malware_family", _TOP_N_COUNTRIES))
-    _asn_breakdown = _attach_rank_colors(_chip_breakdown(c2_items, "asn", "asn", _TOP_N_COUNTRIES))
-    _ports_breakdown = _attach_rank_colors(_open_ports_breakdown(c2_items, _TOP_N_COUNTRIES))
-    _malware_color_by_name = {row["malware_family"]: row["color"] for row in _mf_breakdown}
-    _asn_color_by_name = {row["asn"]: row["color"] for row in _asn_breakdown}
+    # C2 infra redesign (CDC Phase P4) — "color by IP" : chaque ligne IP (carte + colonne IP du
+    # tableau) porte sa propre couleur de rang (_IP_COLOR_TOKENS), rang = position dans c2_items
+    # (déjà classé, une ligne par IP). Les 3 breakdowns (malware/ASN/ports) gardent chacun leur
+    # PROPRE palette dédiée, distincte de celle des IP et des unes des autres — plus de mapping
+    # nom -> couleur partagé avec le tableau (les cellules Malware family/ASN redeviennent plates).
+    _c2_items_colored = _attach_rank_colors(c2_items, _IP_COLOR_TOKENS)
+    _family_shapes = _family_shape_map(c2_items)
+    _mf_breakdown = _attach_rank_colors(
+        _chip_breakdown(c2_items, "malware_family", "malware_family", _TOP_N_COUNTRIES), _MALWARE_FAMILY_COLOR_TOKENS
+    )
+    _asn_breakdown = _attach_rank_colors(_chip_breakdown(c2_items, "asn", "asn", _TOP_N_COUNTRIES), _ASN_COLOR_TOKENS)
+    _ports_breakdown = _attach_rank_colors(_open_ports_breakdown(c2_items, _TOP_N_COUNTRIES), _PORT_COLOR_TOKENS)
+    # Légende de formes (map-legend, template) — icônes SVG pré-rendues (même builder que les
+    # points de la carte, cf. _build_shape_icon_svg), triées alphabétiquement comme _family_shapes.
+    _family_shape_legend = [
+        {"malware_family": family, "icon_svg": _build_shape_icon_svg(shape)} for family, shape in _family_shapes.items()
+    ]
+
+    # Breaches This Week (CDC Phase P5) — severity_breakdown en ordre de sévérité fixe (pas de
+    # rang de fréquence), impact_chart réutilise _build_mini_bar_chart_svg tel quel (déjà classé
+    # par pwn_count décroissant en amont via ranking.rank_top_n_breaches).
+    _breach_severity_rows = _breach_severity_breakdown(breach_items)
+    _breach_impact_rows = [{"name": item["name"], "count": item["pwn_count"]} for item in breach_items]
 
     return {
         "report": {
@@ -831,25 +1126,33 @@ def build_pdf_context(
             "gauge_svg": _build_mttk_gauge_svg(mttk_median_days)
             if mttk_sample_size > 0 and mttk_median_days is not None
             else None,
+            # Toujours peuplé dès qu'il y a >= 1 entrée KEV ce run (pas limité aux CVE joints
+            # NVD/KEV de la même semaine comme le gauge ci-dessus) — cf. transform/mttk.py
+            # compute_mean_remediation_window_days, CDC Phase P3.
+            "remediation_window_days": kev_remediation_window_days,
         },
         "c2": {
             "active_count": kpis.c2_active_count,
             "trend_pct": kpis.c2_active_trend_pct,
-            "items": c2_items,
+            # Coloré par IP (rang), plus par malware_family — colonne IP du tableau + points de
+            # carte partagent cette même couleur (cf. CDC Phase P4). ASN/Malware family
+            # redeviennent des colonnes plates dans le tableau (couleur portée par leurs propres
+            # breakdowns ci-dessous uniquement, pas par le tableau).
+            "items": _c2_items_colored,
             "sparkline": _build_sparkline_svg(_series("c2_active_count", kpis.c2_active_count)),
-            "map_svg": _build_world_map_svg(c2_items, _malware_color_by_name),
+            "map_svg": _build_world_map_svg(_c2_items_colored, _family_shapes),
             "malware_family_breakdown": _mf_breakdown,
-            "malware_family_chart": _build_mini_bar_chart_svg(_mf_breakdown, "malware_family"),
+            "malware_family_chart": _build_stacked_bar_svg(_mf_breakdown),
             "top_asn": _asn_breakdown,
-            "top_asn_chart": _build_mini_bar_chart_svg(_asn_breakdown, "asn"),
+            "top_asn_chart": _build_stacked_bar_svg(_asn_breakdown),
             "open_ports_breakdown": _ports_breakdown,
-            "open_ports_chart": _build_mini_bar_chart_svg(_ports_breakdown, "port"),
+            "open_ports_chart": _build_stacked_bar_svg(_ports_breakdown),
             "cross_confirmed": c2_cross_confirmed,
-            # Mappings nom -> couleur (mêmes valeurs que le champ "color" des breakdowns
-            # ci-dessus) — consommés directement par le template pour colorer les cellules
-            # "Malware family"/"ASN" du tableau, cf. CDC Phase B point 8.
-            "malware_color_by_name": _malware_color_by_name,
-            "asn_color_by_name": _asn_color_by_name,
+            # Légende de formes (map-legend, template) — liste de {malware_family, icon_svg},
+            # pas un simple mapping nom->forme, pour rester template-ready comme le reste de ce
+            # fichier (gauge_svg/severity_donut/etc. sont déjà des SVG pré-rendus, pas des données
+            # brutes recalculées côté Jinja).
+            "family_shapes": _family_shape_legend,
         },
         "malicious_urls": {
             "online_count": kpis.malicious_url_count,
@@ -861,6 +1164,16 @@ def build_pdf_context(
                 _tt_breakdown := _chip_breakdown(malicious_url_items, "threat_type", "threat_type", _TOP_N_COUNTRIES)
             ),
             "threat_type_chart": _build_mini_bar_chart_svg(_tt_breakdown, "threat_type"),
+        },
+        "breaches": {
+            "new_count": len(breach_items),
+            "total_accounts_exposed": _format_breach_count(sum(item["pwn_count"] for item in breach_items)),
+            "spotlight": breach_items[0] if breach_items else None,
+            "severity_breakdown": _breach_severity_rows,
+            "severity_donut": _build_multi_donut_svg(
+                [(row["count"], row["color"]) for row in _breach_severity_rows], "BREACHES"
+            ),
+            "impact_chart": _build_mini_bar_chart_svg(_breach_impact_rows, "name"),
         },
         "threatfox": {
             "enabled": threatfox_enabled,

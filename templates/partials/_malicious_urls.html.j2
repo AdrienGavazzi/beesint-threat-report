@@ -1,4 +1,4 @@
-<section class="section">
+<section class="section" id="sec-malicious-urls">
   <h2 class="section-title">Malicious URLs Online</h2>
   <p class="section-desc">Live links currently hosting malware or phishing pages — still reachable by a victim clicking today.</p>
   <div class="kpi-grid">
@@ -23,7 +23,7 @@
 
   {% if malicious_urls.trend_chart %}
   <div class="chart-row">
-    <div class="chart-card" style="flex-basis: 100%;">
+    <div class="chart-card chart-card--full">
       <p class="chart-card-title">Malicious URLs online — run history</p>
       {{ malicious_urls.trend_chart | safe }}
     </div>

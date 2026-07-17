@@ -1,5 +1,38 @@
-<section class="section">
+<section class="section" id="sec-executive-summary">
   <h2 class="section-title">Executive Summary</h2>
   <p class="section-desc">A plain-language recap of this week's findings — no cyber background required.</p>
   <p class="exec-summary">{{ executive_summary }}</p>
+
+  <div class="kpi-grid" style="margin-top: 16px;">
+    <div class="kpi-card kpi-card--cve">
+      <div class="value">{{ report.kpi_summary.cve_critical_count }}</div>
+      <div class="label">Critical CVEs</div>
+    </div>
+    <div class="kpi-card kpi-card--kev">
+      <div class="value">{{ report.kpi_summary.kev_new_count }}</div>
+      <div class="label">New KEV entries</div>
+    </div>
+    <div class="kpi-card kpi-card--c2">
+      <div class="value">{{ report.kpi_summary.c2_active_count }}</div>
+      <div class="label">Active C2 IPs</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ report.kpi_summary.malicious_url_count }}</div>
+      <div class="label">Malicious URLs</div>
+    </div>
+  </div>
+
+  {% if history_chart.svg %}
+  <div class="chart-row">
+    <div class="chart-card chart-card--full">
+      <p class="chart-card-title">Critical CVEs, KEV additions &amp; active C2 — run history</p>
+      {{ history_chart.svg | safe }}
+      <div class="chart-legend">
+        {% for entry in history_chart.legend %}
+        <span class="chart-legend-item"><span class="chart-legend-dot" style="background:{{ entry.color }}"></span>{{ entry.label }}</span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
 </section>

@@ -1,8 +1,15 @@
+from dataclasses import dataclass
 from datetime import datetime
 
 import polars as pl
 
-from beesint_threat_report.transform.ranking import rank_top_n_cves, rank_top_n_ips
+from beesint_threat_report.transform.ranking import rank_top_n_breaches, rank_top_n_cves, rank_top_n_ips
+
+
+@dataclass
+class _FakeBreach:
+    name: str
+    pwn_count: int
 
 
 def test_rank_top_n_cves_tie_break_deterministic_order():
@@ -46,3 +53,16 @@ def test_rank_top_n_ips_new_first_then_first_seen_then_ip():
     )
     result = rank_top_n_ips(df, n=10)
     assert result["ip_address"].to_list() == ["1.1.1.1", "2.2.2.2", "3.3.3.3"]
+
+
+def test_rank_top_n_breaches_sorted_by_pwn_count_descending():
+    entries = [_FakeBreach("Small", 100), _FakeBreach("Big", 5_000_000), _FakeBreach("Medium", 2_000)]
+    result = rank_top_n_breaches(entries, n=10)
+    assert [e.name for e in result] == ["Big", "Medium", "Small"]
+
+
+def test_rank_top_n_breaches_respects_n_cap():
+    entries = [_FakeBreach(str(i), i) for i in range(5)]
+    result = rank_top_n_breaches(entries, n=2)
+    assert len(result) == 2
+    assert [e.pwn_count for e in result] == [4, 3]

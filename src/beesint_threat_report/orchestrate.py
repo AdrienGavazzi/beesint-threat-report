@@ -15,8 +15,10 @@ import polars as pl
 from beesint_threat_report.cache.store import cache_key, get_or_fetch
 from beesint_threat_report.config import Settings, load_settings, resolve_base_path, resolve_storage_options
 from beesint_threat_report.extract import (
+    breachdirectory,
     feodo,
     greynoise,
+    hibp,
     kev,
     nvd,
     openphish,
@@ -27,7 +29,12 @@ from beesint_threat_report.extract import (
 )
 from beesint_threat_report.load.json_writer import build_report_payload, write_report_json
 from beesint_threat_report.load.parquet_writer import write_historical_parquet
-from beesint_threat_report.load.pdf_context import build_c2_items, build_malicious_url_items, build_pdf_context
+from beesint_threat_report.load.pdf_context import (
+    build_breach_items,
+    build_c2_items,
+    build_malicious_url_items,
+    build_pdf_context,
+)
 from beesint_threat_report.load.pdf_renderer import render_pdf
 from beesint_threat_report.publish.telemetry import log_run_summary, sentry_breadcrumb_run_step
 from beesint_threat_report.publish.webhook import publish_status
@@ -43,6 +50,7 @@ from beesint_threat_report.validate.frames import (
     validate_urlhaus_frame,
 )
 from beesint_threat_report.validate.schemas import (
+    BreachEntry,
     FeodoIpRecord,
     GreyNoiseClassification,
     KevEntry,
@@ -457,6 +465,55 @@ async def _run_openphish_source(
         return [], "failed"
 
 
+async def _run_hibp_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    run_id: str,
+    period_start,
+    period_end,
+    base_path: str,
+    storage_options: dict | None,
+) -> tuple[list[BreachEntry], str]:
+    """Breaches This Week (CDC Phase P5) — HaveIBeenPwned, gratuit sans clé. Même style
+    list-based que ThreatFox/OpenPhish (pas de DataFrame, pas de dedup — HIBP "Name" est déjà
+    unique par construction sur un même pull)."""
+    try:
+        key = cache_key("hibp", {"breaches_url": settings.hibp_breaches_url})
+        raw = await get_or_fetch(
+            key,
+            lambda: hibp.fetch_hibp_breaches(client, settings.hibp_breaches_url),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+        valid, rejected = validate_batch(raw, BreachEntry, source="hibp", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "hibp", run_id, rejected)
+        new_entries = hibp.filter_new_breaches(valid, period_start, period_end)
+        return new_entries, "ok"
+    except Exception:
+        logger.exception("hibp: échec de la source, run continue en dégradé")
+        return [], "failed"
+
+
+async def _run_breachdirectory_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    domain: str | None,
+) -> tuple[int, str]:
+    """Cross-check secondaire (CDC Phase P5) — appelé une seule fois sur le domaine de la breach
+    la plus impactante du run ("spotlight"), jamais bloquant : pas de clé -> skip avant tout appel
+    réseau (même convention que _run_greynoise_source/_run_shodan_source sans IP)."""
+    if not settings.rapidapi_key:
+        return 0, "skipped:no_api_key"
+    if not domain:
+        return 0, "skipped:no_breach_this_run"
+    try:
+        found = await breachdirectory.check_breachdirectory(client, domain, settings.rapidapi_key)
+        return found, "ok"
+    except Exception:
+        logger.exception("breachdirectory: échec de la source, run continue en dégradé")
+        return 0, "failed"
+
+
 def _build_top_cves(ranked_cve_df: pl.DataFrame, kev_df: pl.DataFrame) -> list[dict]:
     if ranked_cve_df.height == 0:
         return []
@@ -596,6 +653,12 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
         sources_status["openphish"] = openphish_status
         sentry_breadcrumb_run_step("extract_openphish", openphish_status)
 
+        hibp_entries, hibp_status = await _run_hibp_source(
+            client, settings, run_id, period_start, period_end, base_path, storage_options
+        )
+        sources_status["hibp"] = hibp_status
+        sentry_breadcrumb_run_step("extract_hibp", hibp_status)
+
         ip_frame = merge_threatfox_ip_iocs(feodo_df, threatfox_iocs)
         if ip_frame.height:
             ip_frame = validate_ip_threat_frame(ip_frame)
@@ -613,10 +676,12 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
         mean_time_to_kev = mttk.compute_mean_time_to_kev(joined)
         median_time_to_kev = mttk.compute_median_time_to_kev(joined)
         mttk_sample_size = joined.height
+        kev_remediation_window_days = mttk.compute_mean_remediation_window_days(kev_df)
 
         ranked_cves = ranking.rank_top_n_cves(cve_df, n=10) if cve_df.height else cve_df
         ranked_ips = ranking.rank_top_n_ips(ip_frame, n=10) if ip_frame.height else ip_frame
         ranked_urls = ranking.rank_top_n_urls(url_frame, n=10) if url_frame.height else url_frame
+        ranked_breaches = ranking.rank_top_n_breaches(hibp_entries, n=10)
 
         geo: dict[str, dict] = {}
         ip_list: list[str] = []
@@ -656,6 +721,16 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
         sources_status["greynoise"] = greynoise_status
         sentry_breadcrumb_run_step("extract_greynoise", greynoise_status)
 
+        # BreachDirectory (cross-check secondaire, CDC Phase P5) — uniquement sur le domaine de
+        # la breach la plus impactante du run (spotlight = ranked_breaches[0]), jamais sur toutes
+        # les breaches (même principe "top-N déjà réduit" que Shodan/Spamhaus/GreyNoise ci-dessus).
+        spotlight_domain = ranked_breaches[0].domain if ranked_breaches else None
+        breachdirectory_count, breachdirectory_status = await _run_breachdirectory_source(
+            client, settings, spotlight_domain
+        )
+        sources_status["breachdirectory"] = breachdirectory_status
+        sentry_breadcrumb_run_step("extract_breachdirectory", breachdirectory_status)
+
         source_item_counts: dict[str, int] = {
             "nvd": cve_df.height,
             "kev": kev_df.height,
@@ -666,6 +741,7 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
             "shodan": len(shodan_data),
             "spamhaus": len(spamhaus_confirmed),
             "greynoise": len(greynoise_data),
+            "hibp": len(hibp_entries),
         }
         extract_done_at = time.monotonic()
 
@@ -678,6 +754,7 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
         top_ips = _build_top_ips(ranked_ips, geo, shodan_data, spamhaus_confirmed, greynoise_data)
         c2_items = build_c2_items(top_ips)
         malicious_url_items = build_malicious_url_items(ranked_urls)
+        breach_items = build_breach_items(ranked_breaches, breachdirectory_count)
         transform_done_at = time.monotonic()
 
         # load
@@ -729,9 +806,11 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
                 kev_df=kev_df,
                 mttk_median_days=median_time_to_kev,
                 mttk_sample_size=mttk_sample_size,
+                kev_remediation_window_days=kev_remediation_window_days,
                 feodo_df=ip_frame,
                 c2_items=c2_items,
                 malicious_url_items=malicious_url_items,
+                breach_items=breach_items,
                 pipeline_duration_seconds=pipeline_duration_seconds,
                 sources_status=sources_status,
                 is_cold_start=is_cold_start,

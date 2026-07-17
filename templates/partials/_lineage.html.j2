@@ -1,10 +1,10 @@
-<section class="section">
+<section class="section" id="sec-lineage">
   <h2 class="section-title">Pipeline Lineage &amp; Source Attribution</h2>
   <p class="section-desc">Full traceability of this run — which pipeline execution produced this report, and which upstream feeds it pulled from. All dates UTC.</p>
 
   <div class="kpi-grid">
     <div class="kpi-card">
-      <div class="value" style="font-size: 12px; font-family: var(--font-mono);">{{ lineage.run_id }}</div>
+      <div class="value value--run-id">{{ lineage.run_id }}</div>
       <div class="label">Run ID</div>
     </div>
     <div class="kpi-card">

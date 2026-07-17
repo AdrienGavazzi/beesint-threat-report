@@ -1,8 +1,8 @@
-<section class="section">
+<section class="section" id="sec-mttk">
   <h2 class="section-title">Mean-Time-to-KEV</h2>
   <p class="section-desc">Average days between a vulnerability's public disclosure and its confirmed active exploitation — shorter means less warning time for defenders.</p>
-  {% if mttk.sample_size > 0 %}
   <div class="chart-row">
+    {% if mttk.sample_size > 0 %}
     {% if mttk.gauge_svg %}
     <div class="chart-card" style="flex: 0 0 auto;">
       <p class="chart-card-title">Median lag (color zones: &lt;7d / 7-30d / &gt;30d)</p>
@@ -23,8 +23,13 @@
         <div class="label">Sample size</div>
       </div>
     </div>
+    {% endif %}
+    <div class="kpi-card mttk-remediation-card">
+      <div class="value">{{ mttk.remediation_window_days if mttk.remediation_window_days is not none else "N/A" }}</div>
+      <div class="label">CISA remediation window (avg days)</div>
+    </div>
   </div>
-  {% else %}
-  <p class="section-desc" style="font-style: italic;">Not enough data yet — no CVE this run was both newly critical and newly added to CISA's KEV list with a matching disclosure date to measure lag against.</p>
+  {% if mttk.sample_size == 0 %}
+  <p class="section-desc" style="font-style: italic; margin-top: 10px;">Not enough data yet to measure disclosure-to-exploitation lag — no CVE this run was both newly critical and newly added to CISA's KEV list with a matching disclosure date. The card above still reflects CISA's own remediation deadline for this week's KEV additions, independent of that overlap.</p>
   {% endif %}
 </section>

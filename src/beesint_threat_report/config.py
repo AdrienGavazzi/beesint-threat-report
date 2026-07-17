@@ -35,6 +35,8 @@ class Settings:
     # PhishTank retiré (inscriptions fermées, plus de clé API obtenable, cf. décision produit) —
     # remplacé par OpenPhish : flux public gratuit, aucune clé, même usage (URLs phishing).
     openphish_feed_url: str = "https://openphish.com/feed.txt"
+    hibp_breaches_url: str = "https://haveibeenpwned.com/api/v3/breaches"  # gratuit, sans clé
+    rapidapi_key: str | None = None  # optionnel (BreachDirectory cross-check) — étape sautée si absente
 
     # Stockage
     storage_backend: str = "local"  # "local" | "s3"
@@ -87,6 +89,7 @@ def load_settings() -> Settings:
         nvd_api_key=os.environ.get("NVD_API_KEY") or None,
         threatfox_auth_key=os.environ.get("THREATFOX_AUTH_KEY") or None,
         greynoise_api_key=os.environ.get("GREYNOISE_API_KEY") or None,
+        rapidapi_key=os.environ.get("RAPIDAPI_KEY") or None,
         storage_backend=storage_backend,
         s3_bucket=os.environ.get("ORACLE_S3_BUCKET") or None,
         s3_endpoint_url=os.environ.get("ORACLE_S3_ENDPOINT") or None,

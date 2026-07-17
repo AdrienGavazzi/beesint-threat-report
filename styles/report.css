@@ -75,9 +75,13 @@
   --font-sans: "Plus Jakarta Sans", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 
-  --radius-sm: 3px;
-  --radius-md: 6px;
-  --radius-lg: 12px;
+  /* Coins nets sur les cards (kpi-card/chart-card/map-frame) — demande explicite, la DA du
+     rapport PDF ne veut pas de border-radius sur les cards de données. --radius-lg est un token
+     mort (jamais utilisé aujourd'hui) mis à 0 par cohérence. --radius-full inchangé : les chips
+     (.chip) restent des pilules, ce sont des tags, pas des cards. */
+  --radius-sm: 2px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
   --radius-full: 9999px;
 }
 
@@ -133,16 +137,20 @@
 
 /* Page de garde sans marge : .cover gère son propre padding interne (voir plus bas) pour
    couvrir tout le format A4 physique, effet "pleine page" plutôt qu'un cadre inséré dans les
-   marges standard du reste du rapport. Non re-testé empiriquement au même niveau que le reste
-   des règles @page de ce fichier (cf. CDC §"WeasyPrint 62.3 — empirically verified limits"). */
-@page :first {
+   marges standard du reste du rapport.
+   ANCIEN comportement (`@page :first` + `@bottom-left { content: none; }`) confirmé cassé au
+   rendu réel (CDC Phase P7) : WeasyPrint 62.3 ne fait PAS gagner la déclaration `content` la
+   plus spécifique (`:first`) sur celle de la règle `@page` de base pour une même margin-box —
+   les deux `content:` déclarés sur `@bottom-left` dans deux blocs `@page` séparés ne cascadent
+   pas comme sur un vrai navigateur, la base l'emportait toujours (testé aussi avec
+   `content: "";` en remplacement de `content: none;`, même résultat cassé). Fix : page nommée
+   CSS (`page: cover;` posé sur `.cover`, cf. plus bas) — `@page cover` est un contexte de page
+   totalement distinct de `@page` (pas de fusion de cascade entre les deux à contourner), vérifié
+   empiriquement sur un cas isolé avant d'appliquer ici : la margin-box de la page nommée ne
+   hérite d'aucune déclaration de la page de base. */
+@page cover {
   margin: 0;
   background: var(--color-bg-base);
-  /* margin:0 alone doesn't suppress the recurring @bottom-*/@top-* margin-box content inherited
-     from the base @page rule above — WeasyPrint still paints it flush against the physical edge
-     with no margin to sit inside. Cover page has its own run-id/period footer AND full BeeSINT
-     branding baked into .cover, the recurring header/footer would just double up flush against
-     the bleed. */
   @bottom-left { content: none; }
   @bottom-right { content: none; }
   @bottom-center { content: none; }
@@ -231,6 +239,9 @@ h1, h2, h3 {
    dans .cover-inner à la place, .run-id reste un sibling direct de .cover-inner sous .cover
    (non-flex, position:relative) pour rester positionnable en absolu. */
 .cover {
+  /* `page: cover;` bascule cet élément (et lui seul, un seul run donc une seule page couverte)
+     sur le contexte de page nommé `@page cover` ci-dessus — voir ce bloc pour le WHY. */
+  page: cover;
   position: relative;
   height: 29.7cm;
   padding: 2.2cm 1.8cm 2.6cm 1.8cm;
@@ -287,18 +298,48 @@ h1, h2, h3 {
   left: 1.8cm;
 }
 
-/* Sommaire */
-.summary-list {
+/* Sommaire — TOC avec vrais numéros de page (WeasyPrint `target-counter`, vérifié empiriquement
+   fonctionnel sur cette version 62.3 avant d'être appliqué ici). Remplace l'ancien
+   .summary-list (liste statique sans lien ni page réelle) — "Contents" redevient un sommaire pur,
+   les KPI/chart qu'il portait avant vivent maintenant dans Executive Summary (cf.
+   _executive_summary.html.j2).
+   PAS de leader en flex-spacer vide (`flex-grow` sur un enfant flex sans contenu) : vérifié
+   empiriquement cassé sur WeasyPrint 62.3 — un enfant `flex: 1 1 auto`/`flex-grow: 1` sans
+   contenu texte reste à largeur nulle au lieu de consommer l'espace libre du parent (confirmé
+   sur un cas isolé minimal, bug distinct de tous les autres pièges flex déjà documentés dans ce
+   fichier). Fix : `justify-content: space-between` sur `.toc-entry` (titre à gauche, page à
+   droite) + `border-bottom` en pointillés sur la ligne entière — même mécanisme, déjà éprouvé,
+   que l'ancien `.summary-list li`, pas de nouvel élément spacer à faire porter par flex-grow. */
+.toc-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.toc-entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 5px 0;
+  border-bottom: 1px dotted var(--color-border-subtle);
+}
+.toc-link, .toc-page {
+  /* Author stylesheet toujours prioritaire sur le user-agent stylesheet pour une déclaration
+     "normal" (non-!important), quelle que soit la spécificité relative — pas besoin de matcher
+     `a:link` de WeasyPrint pour neutraliser sa couleur/soulignement par défaut. */
+  text-decoration: none;
+}
+.toc-link {
+  font-size: 10px;
+  color: var(--color-text-body);
+}
+.toc-page {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--color-text-muted);
-  list-style: none;
-  padding: 0;
-  margin: 0 0 16px 0;
+  white-space: nowrap;
 }
-.summary-list li {
-  padding: 3px 0;
-  border-bottom: 1px dotted var(--color-border-subtle);
+.toc-page::after {
+  content: target-counter(attr(href), page);
 }
 
 .kpi-grid {
@@ -336,6 +377,18 @@ h1, h2, h3 {
 .kpi-card--cve .value { color: var(--color-primary); }
 .kpi-card--kev .value { color: var(--color-warning); }
 .kpi-card--c2 .value { color: #A78BFA; } /* matches _LINE_SERIES_COLORS["c2"], not a design token */
+/* Run ID (Lineage section) — un UUID complet en .value nue (font-display 22px) débordait la
+   card. Classe dédiée : mono, taille réduite, troncature ellipsis (le run_id complet reste
+   consultable/copiable ailleurs, table admin via CopyButton — cf. plan). */
+.kpi-card .value--run-id {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
 .kpi-card .label {
   font-family: var(--font-mono);
   font-size: 8px;
@@ -527,6 +580,14 @@ tbody tr:nth-child(even) {
   padding: 12px 14px;
   margin: 0 16px 16px 0;
 }
+/* Variante pleine largeur (remplace l'ancien `style="flex-basis: 100%;"` inline) — 10px de
+   marge droite, pas 0 : c'est ce qui aligne réellement le bord droit de la card avec la ligne de
+   .kpi-card au-dessus (qui ne perd que 10px de marge droite sur sa dernière colonne), un 0px nu
+   laissait un décalage de 6px visible au rendu réel entre les deux bords. */
+.chart-card--full {
+  flex: 1 1 100%;
+  margin: 0 10px 16px 0;
+}
 .chart-card-title {
   font-family: var(--font-mono);
   font-size: 8px;
@@ -567,10 +628,14 @@ tbody tr:nth-child(even) {
      flex-wrap+gap documenté plus haut. */
   gap: 32px;
   padding-left: 4px;
+  /* Légende poussée pour exploiter l'espace libre à droite du donut plutôt que de rester
+     collée contre lui — safe ici aussi : toujours 2 enfants fixes, jamais de wrap. */
+  justify-content: space-between;
 }
 .donut-row .chart-legend {
   font-size: inherit;
   margin-top: 0;
+  flex: 1 1 auto;
 }
 .donut-row .chart-legend-item {
   display: block;
@@ -594,7 +659,7 @@ tbody tr:nth-child(even) {
 }
 
 /* Même bug que .map-frame svg ci-dessus, sur les 2 autres charts rendus en pleine largeur de
-   section (chart-card avec style="flex-basis: 100%" inline, cf. templates _summary.html.j2 /
+   section (chart-card avec la classe .chart-card--full, cf. templates _executive_summary.html.j2 /
    _malicious_urls.html.j2) : leur <svg> pose width/height en attributs fixes (pdf_context.py,
    px absolus) qui ne remplissaient qu'une fraction de la largeur réelle de la card au rendu réel
    (bug confirmé visuellement, pas seulement en lecture de CSS) — seul .map-frame svg avait cette
@@ -606,11 +671,25 @@ tbody tr:nth-child(even) {
   height: auto;
   display: block;
 }
-/* Légende sous la carte C2 (points colorés par malware family, cf. pdf_context.py
-   _rank_color/dot_color_by_malware) — réutilise .chart-legend/.chart-legend-item déjà défini
-   ci-dessus plutôt qu'un composant dédié. */
+/* Légende sous la carte C2 (formes par malware family — la couleur des points est portée par
+   l'IP, cf. pdf_context.py _family_shape_map/_build_shape_icon_svg, CDC Phase P4) — réutilise
+   .chart-legend/.chart-legend-item déjà défini ci-dessus plutôt qu'un composant dédié. */
 .map-legend {
   margin-top: 8px;
+}
+.chart-legend-item .shape-icon {
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+/* Barre empilée horizontale (C2 infra : malware family/ASN/ports, cf. pdf_context.py
+   _build_stacked_bar_svg) — même piège de largeur fixe SVG que .map-frame svg/.history-line-chart
+   ci-dessus : sans cette règle, la barre ne remplit que sa largeur SVG intrinsèque. */
+.stacked-bar {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-bottom: 6px;
 }
 
 /* Malware family / Top ASN / Open ports (C2 infra) — même bug flex-wrap+gap documenté sur
@@ -632,14 +711,22 @@ tbody tr:nth-child(even) {
    wrapper .chart-card qui encadrait les 3 KPI d'une card superflue. flex-direction:column, donc
    flex-basis porte sur la hauteur (pas la largeur) — .kpi-card doit rester à sa hauteur naturelle
    (flex: 0 0 auto) et prendre toute la largeur dispo (align-items:stretch par défaut suffit, pas
-   besoin de width:100% explicite). */
+   besoin de width:100% explicite).
+   200px -> 160px + ajout d'une margin (absente jusqu'ici, incohérence avec le reste du fichier
+   qui porte tout son spacing via margin plutôt que gap sur le parent .chart-row) : la nouvelle
+   .mttk-remediation-card (toujours rendue, cf. Phase P3) doit tenir sur la même ligne que le
+   gauge + cette colonne sans wrapper, y compris quand le gauge est aussi présent. */
 .mttk-kpi-column {
   display: flex;
   flex-direction: column;
-  flex: 1 1 200px;
+  flex: 1 1 160px;
+  margin: 0 16px 16px 0;
 }
 .mttk-kpi-column .kpi-card {
   flex: 0 0 auto;
+}
+.mttk-remediation-card {
+  flex: 1 1 160px;
 }
 
 /* Section lineage — refonte "liste sobre" (plus de card look) : ces lignes ne sont pas des KPI,

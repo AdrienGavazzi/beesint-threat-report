@@ -65,6 +65,28 @@ class KevEntry(BaseModel):
         return _to_utc(value)
 
 
+class BreachEntry(BaseModel):
+    """Une entrée du catalogue HIBP `/api/v3/breaches` — même forme que KevEntry (cf. CDC
+    Phase P5 "Breaches This Week")."""
+
+    model_config = ConfigDict(frozen=True)
+    name: str
+    title: str
+    domain: str = ""
+    breach_date: datetime
+    added_date: datetime
+    pwn_count: int = 0
+    data_classes: list[str] = []
+    is_verified: bool = False
+    is_sensitive: bool = False
+    description: str = ""
+
+    @field_validator("breach_date", "added_date")
+    @classmethod
+    def _force_utc(cls, value: datetime) -> datetime:
+        return _to_utc(value)
+
+
 class FeodoIpRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
     ip_address: str

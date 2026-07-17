@@ -1,17 +1,21 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 import polars as pl
 
 from beesint_threat_report.load.pdf_context import (
     _build_executive_summary,
+    _build_multi_donut_svg,
     _build_sparkline_svg,
     _c2_cross_confirmed,
+    _format_breach_count,
     _open_ports_breakdown,
+    build_breach_items,
     build_c2_items,
     build_malicious_url_items,
     build_pdf_context,
 )
 from beesint_threat_report.transform.kpis import ReportKpis
+from beesint_threat_report.validate.schemas import BreachEntry
 
 
 def _kpis(**overrides) -> ReportKpis:
@@ -97,9 +101,11 @@ def test_build_pdf_context_surfaces_new_fields():
         kev_df=empty_kev_df,
         mttk_median_days=5.0,
         mttk_sample_size=3,
+        kev_remediation_window_days=None,
         feodo_df=empty_feodo_df,
         c2_items=[],
         malicious_url_items=[],
+        breach_items=[],
         pipeline_duration_seconds=8.2,
         sources_status={"nvd": "ok", "threatfox": "skipped:no_auth_key"},
         is_cold_start=False,
@@ -277,3 +283,66 @@ def test_build_executive_summary_cross_confirmed_singular_noun_and_verb():
         _kpis(), is_cold_start=False, sources_status={"nvd": "ok"}, c2_cross_confirmed={"confirmed": 1, "total": 5}
     )
     assert "1 of this week's active C2 server was independently confirmed" in summary
+
+
+# ---- Breaches This Week (CDC Phase P5) --------------------------------------------------------
+
+
+def _breach_entry(**overrides) -> BreachEntry:
+    base = dict(
+        name="ExampleCorp",
+        title="ExampleCorp",
+        domain="example.com",
+        breach_date=datetime(2026, 6, 1, tzinfo=UTC),
+        added_date=datetime(2026, 6, 5, tzinfo=UTC),
+        pwn_count=1_200_000,
+        data_classes=["Email addresses", "Passwords"],
+        is_verified=True,
+        is_sensitive=False,
+        description="Example breach description.",
+    )
+    base.update(overrides)
+    return BreachEntry(**base)
+
+
+def test_format_breach_count_thresholds():
+    assert _format_breach_count(500) == "500"
+    assert _format_breach_count(1_500) == "2K"
+    assert _format_breach_count(2_500_000) == "2.5M"
+    assert _format_breach_count(3_000_000_000) == "3.0B"
+
+
+def test_build_breach_items_computes_severity_and_formats_pwn_count():
+    items = build_breach_items([_breach_entry()], breachdirectory_count=0)
+    assert items[0]["severity"] == "CRITICAL"
+    assert items[0]["pwn_count_formatted"] == "1.2M"
+    assert items[0]["name"] == "ExampleCorp"
+
+
+def test_build_breach_items_only_spotlight_gets_breachdirectory_count():
+    items = build_breach_items(
+        [_breach_entry(name="First"), _breach_entry(name="Second", pwn_count=100)], breachdirectory_count=7
+    )
+    assert items[0]["breachdirectory_count"] == 7
+    assert items[1]["breachdirectory_count"] is None
+
+
+def test_build_breach_items_truncates_long_description():
+    long_desc = "x" * 500
+    items = build_breach_items([_breach_entry(description=long_desc)], breachdirectory_count=0)
+    assert len(items[0]["description"]) == 140
+    assert items[0]["description"].endswith("...")
+
+
+def test_build_multi_donut_svg_none_when_total_zero():
+    assert _build_multi_donut_svg([], "BREACHES") is None
+    assert _build_multi_donut_svg([(0, "#EF4444")], "BREACHES") is None
+
+
+def test_build_multi_donut_svg_renders_one_arc_per_nonzero_segment():
+    svg = _build_multi_donut_svg([(2, "#EF4444"), (0, "#F59E0B"), (1, "#22C55E")], "BREACHES")
+    assert svg is not None
+    # 1 <circle> arc par segment non-nul (le segment à count=0 est sauté) + le total au centre.
+    assert svg.count("<circle") == 2
+    assert "BREACHES" in svg
+    assert ">3<" in svg  # total au centre (2 + 0 + 1)
