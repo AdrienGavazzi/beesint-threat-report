@@ -26,6 +26,18 @@ cloud.
 | Jointure NVD×KEV (Mean-Time-to-KEV) | Modélisation analytique, cross-source join | Data modeling, analytics engineering |
 | Webhook interne + table DB | Intégration systèmes, API interne | System integration |
 | tenacity (retry) + cache local | Résilience pipeline | Fault tolerance, idempotency |
+| Enrichissement cross-source (Shodan InternetDB, Spamhaus DROP/EDROP, GreyNoise) | Fusion de signaux multi-feeds sur une même entité, pas de section isolée par source | Threat intel enrichment, data fusion |
+| HaveIBeenPwned + BreachDirectory (cross-check) | Intégration API tierce, dégradation propre sans clé optionnelle | API integration, graceful degradation |
+| Jinja2 autoescape + sanitisation HTML | Sécurité du rendu (contenu texte sourcé d'APIs externes) | Output encoding, template security |
+
+## Rapport PDF — WeasyPrint
+
+Rendu HTML→PDF sans dépendance navigateur (WeasyPrint + Jinja2), charts et carte du monde générés
+en SVG pur côté Python (aucun appel réseau au moment du rendu — un run ne doit jamais dépendre
+d'un service de tuiles tiers pour produire un chart). Sections : CVE critiques, CISA KEV,
+Mean-Time-to-KEV, infrastructure C2 active (carte + tableau enrichi multi-sources), malware
+families (ThreatFox), URLs malveillantes, breaches de la semaine (HaveIBeenPwned), attribution des
+sources et traçabilité complète du run.
 
 ## Architecture
 
@@ -54,10 +66,13 @@ Traits pointillés = composants externes à ce repo, gérés par les repos `bees
 ## Aperçu du rapport
 
 ![Rapport hebdomadaire — vue KPIs](docs/screenshots/report-kpis-overview.png)
-*Rapport hebdomadaire — vue KPIs*
+*Rapport hebdomadaire — vue KPIs (CVE critiques, source status, sommaire)*
 
 ![Rapport — infrastructure C2 active](docs/screenshots/report-c2-infrastructure.png)
-*Rapport — infrastructure C2 active et répartition par pays*
+*Rapport — infrastructure C2 active (carte + tableau enrichi Spamhaus/GreyNoise/Shodan)*
+
+![Rapport — breaches de la semaine](docs/screenshots/report-breaches-this-week.png)
+*Rapport — breaches this week (spotlight HaveIBeenPwned), CWE breakdown et traçabilité du run*
 
 ## Quickstart
 
@@ -117,6 +132,8 @@ Cloud) :
 |---|---|---|
 | `NVD_API_KEY` | Clé API NVD (augmente le rate limit) | Inscription gratuite sur nvd.nist.gov/developers/request-an-api-key |
 | `THREATFOX_AUTH_KEY` | Clé ThreatFox (abuse.ch), optionnelle — absente : étape sautée proprement | Inscription gratuite sur auth.abuse.ch |
+| `GREYNOISE_API_KEY` | Clé GreyNoise Community (enrichissement C2 : classification IP), optionnelle — absente : étape sautée proprement | Inscription gratuite sur greynoise.io |
+| `RAPIDAPI_KEY` | Clé RapidAPI (BreachDirectory, cross-check secondaire des breaches), optionnelle — absente : compte à 0, jamais bloquant | Inscription sur rapidapi.com/rohan-patra/api/breachdirectory |
 | `ORACLE_S3_ACCESS_KEY` | Access key S3-compatible du bucket Oracle | Console Oracle Cloud, Customer Secret Key (voir runbook) |
 | `ORACLE_S3_SECRET_KEY` | Secret key S3-compatible du bucket Oracle | Console Oracle Cloud, Customer Secret Key (voir runbook) |
 | `ORACLE_S3_ENDPOINT` | Endpoint S3-compatible du tenancy Oracle | Console Oracle Cloud, page du bucket |
@@ -136,6 +153,17 @@ Cloud) :
   gratuit (HTTPS = tier payant) — posture assumée, ce projet est un portfolio non-commercial.
 - **CartoDB** (tuiles `dark_all`, utilisées côté carte frontend) : *"© CartoDB"*.
 - **NVD / CISA KEV** : données publiques (domaine public US), pas de restriction de réutilisation.
+- **HaveIBeenPwned** : source primaire de la section "Breaches This Week" (nouvelles brèches de
+  données indexées), usage gratuit sans clé API.
+- **BreachDirectory** (via RapidAPI) : cross-check secondaire sur la breach la plus impactante du
+  run, optionnel (`RAPIDAPI_KEY`).
+- **Shodan InternetDB** : enrichissement des IP C2 (ports ouverts, CVE connues), gratuit sans clé.
+- **Spamhaus DROP/EDROP** : confirmation d'IP C2 malveillantes contre les listes de blocage
+  publiques Spamhaus.
+- **GreyNoise Community** : classification d'IP (bruit internet générique vs cible active),
+  optionnel (`GREYNOISE_API_KEY`).
+- **OpenPhish** : flux public d'URLs de phishing, gratuit sans clé (remplace PhishTank, dont les
+  inscriptions sont fermées).
 
 ## Licence
 

@@ -1,3 +1,4 @@
+{% from "macros.html.j2" import source_link %}
 <section class="section" id="sec-cve-critical">
   <h2 class="section-title">New Critical CVEs</h2>
   <p class="section-desc">Newly disclosed vulnerabilities rated 9.0+ severity — the ones attackers move fastest to weaponize.</p>
@@ -33,8 +34,8 @@
       <div class="donut-row">
         {{ cve.severity_donut | safe }}
         <div class="chart-legend">
-          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#EF4444"></span>Critical ({{ cve.critical_count }})</span>
-          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#F59E0B"></span>High ({{ cve.high_volume_count }})</span>
+          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#EF4444"></span>Critical<span class="chip-count">{{ cve.critical_count }}</span></span>
+          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#F59E0B"></span>High<span class="chip-count">{{ cve.high_volume_count }}</span></span>
         </div>
       </div>
     </div>
@@ -57,6 +58,7 @@
         <th>CVSS</th>
         <th>Published</th>
         <th>Vendor</th>
+        <th>Link</th>
       </tr>
     </thead>
     <tbody>
@@ -67,6 +69,7 @@
         <td class="mono">{{ item.cvss_score if item.cvss_score is not none else "N/A" }}</td>
         <td>{{ item.published_date | fmt_date_short }}</td>
         <td>{{ item.vendor if item.vendor else "N/A" }}</td>
+        <td>{{ source_link("https://nvd.nist.gov/vuln/detail/" ~ item.cve_id, "NVD") }}</td>
       </tr>
       {% endfor %}
     </tbody>

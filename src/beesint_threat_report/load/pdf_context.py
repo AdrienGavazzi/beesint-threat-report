@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime
 
 import polars as pl
@@ -14,6 +15,26 @@ from beesint_threat_report.transform.kpis import ReportKpis
 
 _TOP_N_COUNTRIES = 10
 _URL_TRUNCATE_LEN = 80
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(text: str) -> str:
+    """HIBP's `Description` field routinely embeds raw `<a href=...>` markup (links to the
+    source article/forum). Autoescape alone would just show the escaped tag soup as literal
+    text — this strips it entirely so the description reads as clean prose. Must run BEFORE
+    any char-count truncation: truncating raw HTML by character count can cut a tag in half,
+    leaving an unclosed element that swallows the rest of the document (confirmed root cause
+    of the "everything after Breaches This Week turns into an underlined reddit link" bug)."""
+    return re.sub(r"\s+", " ", _HTML_TAG_RE.sub("", text)).strip()
+
+
+def _truncate_at_word(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    truncated = text[: max_len - 3].rsplit(" ", 1)[0]
+    return truncated + "..."
+
 
 # "category" groupe les sources pour la section Pipeline Lineage & Source Attribution (refonte
 # liste sobre, pas de card look — cf. _lineage.html.j2) : 4 groupes fixes couvrant les 4 grandes
@@ -227,12 +248,18 @@ def _star_points(cx: float, cy: float, r_outer: float, r_inner: float, spikes: i
     return " ".join(points)
 
 
-def _build_marker_svg(shape: str, x: float, y: float, color: str, r: float = 4.5) -> str:
+def _build_marker_svg(shape: str, x: float, y: float, color: str, r: float = 3.6, include_halo: bool = True) -> str:
     """Un marqueur de carte (point C2) dans une forme déterministe par malware_family (cf.
-    _family_shape_map). Halo translucide commun à toutes les formes (même effet visuel qu'avant,
-    glow autour du point) + forme pleine dessinée par-dessus pour rester distinguable à petite
-    taille. Fallback "circle" (comportement identique à l'ancien rendu) si la forme est inconnue."""
-    halo = f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 3:.1f}" fill="{color}" fill-opacity="0.22"/>'
+    _family_shape_map). Halo translucide commun à toutes les formes (glow discret autour du
+    point) + forme pleine dessinée par-dessus pour rester distinguable à petite taille.
+    r=3.6 (halo r+1.8, opacity réduite) : plus fin/lisible que l'ancien r=4.5+halo r+3 — la
+    légende (`include_halo=False`) n'a pas besoin du halo (pas un point sur fond de carte),
+    juste la forme. Fallback "circle" si la forme est inconnue."""
+    halo = (
+        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 1.8:.1f}" fill="{color}" fill-opacity="0.16"/>'
+        if include_halo
+        else ""
+    )
     if shape == "square":
         side = r * 1.6
         mark = f'<rect x="{x - side / 2:.1f}" y="{y - side / 2:.1f}" width="{side:.1f}" height="{side:.1f}" fill="{color}"/>'
@@ -255,11 +282,13 @@ def _build_marker_svg(shape: str, x: float, y: float, color: str, r: float = 4.5
     return halo + mark
 
 
-def _build_shape_icon_svg(shape: str, size: int = 14) -> str:
+def _build_shape_icon_svg(shape: str, size: int = 11) -> str:
     """Icône autonome (map-legend, formes seules — pas de couleur par famille, cf.
-    _LEGEND_SHAPE_COLOR) — réutilise _build_marker_svg, pas de réimplémentation CSS séparée."""
+    _LEGEND_SHAPE_COLOR) — réutilise _build_marker_svg, pas de réimplémentation CSS séparée.
+    Pas de halo ici (`include_halo=False`) : sur fond texte (pas la carte), un halo ne fait que
+    rendre la forme floue à cette petite taille."""
     cx = cy = size / 2
-    marker = _build_marker_svg(shape, cx, cy, _LEGEND_SHAPE_COLOR, r=size * 0.28)
+    marker = _build_marker_svg(shape, cx, cy, _LEGEND_SHAPE_COLOR, r=size * 0.32, include_halo=False)
     return f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" class="shape-icon">{marker}</svg>'
 
 
@@ -929,7 +958,8 @@ def build_malicious_url_items(ranked_urlhaus_df: pl.DataFrame) -> list[dict]:
         return []
     items = []
     for row in ranked_urlhaus_df.to_dicts():
-        url = row["url"]
+        url_full = row["url"]
+        url = url_full
         if len(url) > _URL_TRUNCATE_LEN:
             # "..." ASCII plutôt que le glyphe unicode "…" : absent des webfonts embarqués
             # (Syne/PJS/JetBrains Mono, subsets Latin), provoquerait un fallback système
@@ -939,6 +969,7 @@ def build_malicious_url_items(ranked_urlhaus_df: pl.DataFrame) -> list[dict]:
         items.append(
             {
                 "url": url,
+                "url_full": url_full,
                 "threat_type": row.get("threat"),
                 "tags": row.get("tags") or [],
                 "date_added": date_added.isoformat() if hasattr(date_added, "isoformat") else date_added,
@@ -1006,14 +1037,13 @@ def build_breach_items(ranked_breaches: list, breachdirectory_count: int) -> lis
     impactante du run, pas sur toutes (cf. CDC Phase P5)."""
     items = []
     for rank, entry in enumerate(ranked_breaches):
-        description = entry.description or ""
-        if len(description) > _BREACH_DESC_TRUNCATE_LEN:
-            # "..." ASCII, même raison que build_malicious_url_items ci-dessus (pas de glyphe
-            # unicode "…", absent des webfonts embarqués).
-            description = description[: _BREACH_DESC_TRUNCATE_LEN - 3] + "..."
+        # strip AVANT troncature : une coupe par nombre de caractères sur du HTML brut peut
+        # couper une balise en deux (cf. _strip_html), donc on nettoie d'abord.
+        description = _truncate_at_word(_strip_html(entry.description or ""), _BREACH_DESC_TRUNCATE_LEN)
         items.append(
             {
                 "name": entry.title or entry.name,
+                "hibp_name": entry.name,
                 "domain": entry.domain,
                 "breach_date": entry.breach_date.isoformat(),
                 "added_date": entry.added_date.isoformat(),

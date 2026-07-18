@@ -12,7 +12,7 @@ on:
       skip_email:
         description: "Ne pas notifier les abonnés email pour ce run"
         type: boolean
-        default: false
+        default: true
 
 concurrency:
   group: cron-etl
@@ -34,6 +34,7 @@ jobs:
       SENTRY_DSN_THREAT_REPORT: ${{ secrets.SENTRY_DSN_THREAT_REPORT }}
       THREATFOX_AUTH_KEY: ${{ secrets.THREATFOX_AUTH_KEY }}
       GREYNOISE_API_KEY: ${{ secrets.GREYNOISE_API_KEY }}
+      RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
     steps:
       - uses: actions/checkout@v5
 

@@ -215,6 +215,40 @@ h1, h2, h3 {
   line-height: 1.65;
 }
 
+/* Breach spotlight — le badge "Verified"/"Sensitive" était collé en fin de phrase (titre +
+   compte + date + badge dans le même <p>), peu lisible. Header row séparé : titre à gauche,
+   badges groupés à droite, comme un vrai en-tête de card plutôt qu'un badge perdu dans le texte. */
+.spotlight-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.spotlight-header .chart-card-title {
+  margin-bottom: 0;
+}
+.spotlight-badges {
+  font-size: 0;
+  white-space: nowrap;
+}
+.spotlight-badges .badge {
+  margin-left: 5px;
+}
+
+/* Lien source discret (chip, jamais un <a> inline dans une phrase) — cf. macros.html.j2
+   source_link(). Volontairement séparé du texte courant : un lien inline dans un champ texte
+   sourcé d'API externe est ce qui a causé le bug de balise non fermée fuyant sur tout le
+   document (cf. _strip_html en Python) — les liens de ce rapport ne vivent que dans des éléments
+   dédiés comme celui-ci, jamais mêlés à du texte libre. */
+.source-link {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--color-primary-light);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .run-id {
   font-family: var(--font-mono);
   font-size: 8px;
@@ -351,9 +385,15 @@ h1, h2, h3 {
      2+ lignes (confirmé au rendu réel sur l'ancien .lineage-grid, cf. CLAUDE.md "WeasyPrint
      62.3" — la plupart des kpi-grid de ce rapport ne wrappent pas à 3-4 cards, mais rien ne
      garantit qu'un run futur avec plus de KPI ne les y pousse pas). Spacing porté par la marge
-     de .kpi-card à la place, même pattern margin-over-gap que .lineage-row plus bas. */
+     de .kpi-card à la place, même pattern margin-over-gap que .lineage-row plus bas.
+     margin-right négatif = largeur d'une marge .kpi-card : sans ça, la marge droite de la
+     dernière card de CHAQUE ligne (pas seulement la vraie dernière du DOM) est comptée dans le
+     calcul flex-grow comme de l'espace "utilisé", donc les cards s'arrêtent 10px avant le bord
+     réel de la card conteneur — confirmé visuellement sur MTTK/C2/ThreatFox/Malicious URLs/
+     Breaches, qui partagent tous cette classe. */
   display: flex;
   flex-wrap: wrap;
+  margin-right: -10px;
 }
 .kpi-card {
   flex: 1 1 120px;
@@ -377,16 +417,20 @@ h1, h2, h3 {
 .kpi-card--cve .value { color: var(--color-primary); }
 .kpi-card--kev .value { color: var(--color-warning); }
 .kpi-card--c2 .value { color: #A78BFA; } /* matches _LINE_SERIES_COLORS["c2"], not a design token */
-/* Run ID (Lineage section) — un UUID complet en .value nue (font-display 22px) débordait la
-   card. Classe dédiée : mono, taille réduite, troncature ellipsis (le run_id complet reste
-   consultable/copiable ailleurs, table admin via CopyButton — cf. plan). */
+/* Run ID (Lineage section) — un UUID complet (36 caractères) ne tient pas dans le gabarit KPI
+   standard (flex-basis 120px) même à 12px mono : l'ellipsis précédente le cachait à moitié.
+   .kpi-card--wide double le flex-basis pour que cette card seule s'étale sur 2 colonnes du
+   même flex-wrap row (pas besoin de wrapper séparé), assez large pour afficher les 36
+   caractères sans troncature à 12px JetBrains Mono. */
+.kpi-card--wide {
+  flex-basis: 260px;
+}
 .kpi-card .value--run-id {
   font-size: 12px;
   font-family: var(--font-mono);
   letter-spacing: -0.02em;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
   display: block;
 }
 .kpi-card .label {
@@ -521,11 +565,12 @@ tbody tr:nth-child(even) {
 .source-failed .source-dot { background: var(--color-error); }
 .source-skipped .source-dot { background: var(--color-text-muted); }
 
-/* Variantes directes (pas de wrapper .source-badge) pour le dot compact de la colonne
-   "Signals" du tableau C2 — même dimension que .source-dot ci-dessus, couleur posée
-   directement plutôt que via un parent .source-ok/.source-skipped. */
-.source-dot-ok { background: var(--color-success); }
-.source-dot-off { background: var(--color-text-muted); }
+/* Colonne "Signals" du tableau C2 — la confirmation Spamhaus DROP/EDROP était un point séparé
+   à côté du badge GreyNoise (2 éléments visuels pour 1 seule colonne, lu comme une puce
+   parasite devant le texte). Fusionnée dans le badge lui-même via une bordure gauche colorée :
+   1 seul élément, le titre garde le détail au survol. */
+.badge--spamhaus-ok { border-left: 2px solid var(--color-success); padding-left: 5px; }
+.badge--spamhaus-off { border-left: 2px solid var(--color-border); padding-left: 5px; }
 
 /* Chips pour top pays / top vendors — remplace un bar-chart CSS (supprimé) qui rendait mal
    sur ce type de données : la quasi-totalité des entrées ont count=1, un bar-chart affichait
@@ -547,9 +592,14 @@ tbody tr:nth-child(even) {
   border: 1px solid var(--color-border);
   background: var(--color-bg-surface);
 }
+/* La valeur numérique doit se distinguer du libellé au premier coup d'oeil (avant : même poids
+   visuel que le nom de l'item, difficile de comparer les quantités d'un coup d'oeil) — couleur
+   primaire + poids fort au lieu du gris muted précédent. Partagée par .chip-list ET
+   .chart-legend-item (C2 breakdowns, CVE/Breaches severity split), même langage visuel partout. */
 .chip-count {
-  color: var(--color-text-muted);
-  font-weight: 600;
+  color: var(--color-primary-light);
+  font-weight: 700;
+  font-size: 1.05em;
   margin-left: 6px;
 }
 .chip-lead {
@@ -566,11 +616,14 @@ tbody tr:nth-child(even) {
 
 /* Cartes de charts (donut, histogramme, line chart, carte) — même mécanique flexbox que
    .kpi-grid ci-dessus (pas de repeat(auto-fit,...), non supporté par WeasyPrint). Pas de `gap`
-   ici non plus, même raison que .kpi-grid : spacing porté par la marge de .chart-card. */
+   ici non plus, même raison que .kpi-grid : spacing porté par la marge de .chart-card.
+   margin-right négatif = même fix que .kpi-grid ci-dessus (compense la marge droite du dernier
+   enfant de chaque ligne, sinon la ligne s'arrête 16px avant le bord réel de la card conteneur). */
 .chart-row {
   display: flex;
   flex-wrap: wrap;
   margin-top: 10px;
+  margin-right: -16px;
 }
 .chart-card {
   flex: 1 1 200px;
@@ -580,13 +633,12 @@ tbody tr:nth-child(even) {
   padding: 12px 14px;
   margin: 0 16px 16px 0;
 }
-/* Variante pleine largeur (remplace l'ancien `style="flex-basis: 100%;"` inline) — 10px de
-   marge droite, pas 0 : c'est ce qui aligne réellement le bord droit de la card avec la ligne de
-   .kpi-card au-dessus (qui ne perd que 10px de marge droite sur sa dernière colonne), un 0px nu
-   laissait un décalage de 6px visible au rendu réel entre les deux bords. */
+/* Variante pleine largeur — même marge droite que .chart-card (16px, pas 10px comme avant) pour
+   que le margin-right négatif de .chart-row ci-dessus compense correctement les deux variantes
+   de la même façon et atteigne le vrai bord droit du conteneur. */
 .chart-card--full {
   flex: 1 1 100%;
-  margin: 0 10px 16px 0;
+  margin: 0 16px 16px 0;
 }
 .chart-card-title {
   font-family: var(--font-mono);
@@ -622,11 +674,10 @@ tbody tr:nth-child(even) {
 .donut-row {
   display: flex;
   align-items: center;
-  /* 18px -> 32px : donut et légende se touchaient quasiment visuellement au rendu réel (le
-     cercle du donut a lui-même un rayon large, peu de marge visuelle restait à 18px). Paire
-     fixe à 2 enfants (pas de wrap), donc gap reste fiable ici — ce n'est pas le bug
-     flex-wrap+gap documenté plus haut. */
-  gap: 32px;
+  /* 18px -> 32px -> 48px : toujours trop collé au rendu réel malgré 32px (le cercle du donut a
+     lui-même un rayon large, peu de marge visuelle restait). Paire fixe à 2 enfants (pas de
+     wrap), donc gap reste fiable ici — ce n'est pas le bug flex-wrap+gap documenté plus haut. */
+  gap: 48px;
   padding-left: 4px;
   /* Légende poussée pour exploiter l'espace libre à droite du donut plutôt que de rester
      collée contre lui — safe ici aussi : toujours 2 enfants fixes, jamais de wrap. */
@@ -635,6 +686,7 @@ tbody tr:nth-child(even) {
 .donut-row .chart-legend {
   font-size: inherit;
   margin-top: 0;
+  margin-left: 8px;
   flex: 1 1 auto;
 }
 .donut-row .chart-legend-item {
@@ -695,11 +747,13 @@ tbody tr:nth-child(even) {
 /* Malware family / Top ASN / Open ports (C2 infra) — même bug flex-wrap+gap documenté sur
    .kpi-grid/.chart-row plus haut, même fix (marge sur les colonnes plutôt que gap sur le
    parent). 2 colonnes par ligne (flex-basis ~45% laisse de la place à la marge droite sans
-   calc(), non fiable sur WeasyPrint 62.3 pour ce genre d'expression). */
+   calc(), non fiable sur WeasyPrint 62.3 pour ce genre d'expression).
+   margin-right négatif : même fix que .kpi-grid/.chart-row ci-dessus. */
 .breakdown-grid {
   display: flex;
   flex-wrap: wrap;
   margin-top: 4px;
+  margin-right: -20px;
 }
 .breakdown-col {
   flex: 1 1 45%;

@@ -1,3 +1,4 @@
+{% from "macros.html.j2" import source_link %}
 <section class="section" id="sec-breaches">
   <h2 class="section-title">Breaches This Week</h2>
   <p class="section-desc">New data breaches indexed by HaveIBeenPwned this week — accounts, credentials and personal data newly exposed to attackers.</p>
@@ -15,12 +16,18 @@
 
   {% if breaches.spotlight %}
   <div class="chart-card chart-card--full" style="margin-top: 16px;">
-    <p class="chart-card-title">Spotlight — most impactful breach this week</p>
+    <div class="spotlight-header">
+      <p class="chart-card-title">Spotlight — most impactful breach this week</p>
+      {% if breaches.spotlight.is_verified or breaches.spotlight.is_sensitive %}
+      <div class="spotlight-badges">
+        {% if breaches.spotlight.is_verified %}<span class="badge badge-neutral">Verified</span>{% endif %}
+        {% if breaches.spotlight.is_sensitive %}<span class="badge badge-error">Sensitive</span>{% endif %}
+      </div>
+      {% endif %}
+    </div>
     <p class="exec-summary">
       <strong>{{ breaches.spotlight.name }}</strong>{% if breaches.spotlight.domain %} ({{ breaches.spotlight.domain }}){% endif %}
       — {{ breaches.spotlight.pwn_count_formatted }} accounts, {{ breaches.spotlight.breach_date | fmt_date_short }}
-      {% if breaches.spotlight.is_verified %}<span class="badge badge-neutral">Verified</span>{% endif %}
-      {% if breaches.spotlight.is_sensitive %}<span class="badge badge-error">Sensitive</span>{% endif %}
     </p>
     {% if breaches.spotlight.description %}
     <p class="section-desc">{{ breaches.spotlight.description }}</p>
@@ -33,6 +40,9 @@
     {% if breaches.spotlight.breachdirectory_count %}
     <p class="section-desc" style="margin-top: 8px; margin-bottom: 0;">Also cross-checked in BreachDirectory ({{ breaches.spotlight.breachdirectory_count }} matching entries).</p>
     {% endif %}
+    {% if breaches.spotlight.hibp_name %}
+    <p style="margin-top: 8px; margin-bottom: 0;">{{ source_link("https://haveibeenpwned.com/PwnedWebsites#" ~ breaches.spotlight.hibp_name, "View on HaveIBeenPwned") }}</p>
+    {% endif %}
   </div>
   {% endif %}
 
@@ -44,7 +54,7 @@
       <div class="donut-row">
         {{ breaches.severity_donut | safe }}
         <div class="chart-legend">
-          {% for row in breaches.severity_breakdown %}<span class="chart-legend-item"><span class="chart-legend-dot" style="background:{{ row.color }}"></span>{{ row.severity }} ({{ row.count }})</span>{% endfor %}
+          {% for row in breaches.severity_breakdown %}<span class="chart-legend-item"><span class="chart-legend-dot" style="background:{{ row.color }}"></span>{{ row.severity }}<span class="chip-count">{{ row.count }}</span></span>{% endfor %}
         </div>
       </div>
     </div>

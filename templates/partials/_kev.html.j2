@@ -1,3 +1,4 @@
+{% from "macros.html.j2" import source_link %}
 <section class="section" id="sec-kev">
   <h2 class="section-title">CISA KEV Additions</h2>
   <p class="section-desc">Vulnerabilities CISA has confirmed are being actively exploited in the wild — the highest-priority patching list that exists.</p>
@@ -44,6 +45,7 @@
         <th>Product</th>
         <th>Added</th>
         <th>Ransomware</th>
+        <th>Link</th>
       </tr>
     </thead>
     <tbody>
@@ -60,6 +62,7 @@
             <span class="badge badge-neutral">Unknown</span>
           {% endif %}
         </td>
+        <td>{{ source_link("https://nvd.nist.gov/vuln/detail/" ~ item.cve_id, "NVD") }}</td>
       </tr>
       {% endfor %}
     </tbody>

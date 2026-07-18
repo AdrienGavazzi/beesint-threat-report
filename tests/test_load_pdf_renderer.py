@@ -155,6 +155,7 @@ def minimal_context() -> dict:
             "items": [
                 {
                     "url": "http://malicious.example.com/payload",
+                    "url_full": "http://malicious.example.com/payload",
                     "threat_type": "malware_download",
                     "tags": ["exe", "elf"],
                     "date_added": "2026-06-04",
@@ -171,6 +172,7 @@ def minimal_context() -> dict:
             "total_accounts_exposed": "1.2M",
             "spotlight": {
                 "name": "ExampleCorp",
+                "hibp_name": "ExampleCorp",
                 "domain": "example.com",
                 "breach_date": "2026-06-01",
                 "added_date": "2026-06-05",
@@ -425,14 +427,27 @@ def test_bee_logo_asset_is_compressed():
 # ---- Phase P1 (fixes CSS/markup isolés) ------------------------------------------------------
 
 
-def test_report_css_chart_card_full_has_10px_right_margin_not_0():
-    # .chart-card--full doit garder 10px de marge droite (pas 0) pour aligner son bord droit avec
-    # celui des .kpi-card au-dessus (qui ne perdent que 10px sur leur dernière colonne) — un 0px nu
-    # laissait un décalage de 6px visible au rendu réel.
+def test_report_css_chart_card_full_matches_chart_card_right_margin():
+    # .chart-card--full doit garder la MEME marge droite que .chart-card (16px) pour que le
+    # margin-right négatif de .chart-row (fix "cards n'utilisent pas toute la largeur") compense
+    # correctement les deux variantes de la même façon et atteigne le vrai bord droit du
+    # conteneur (10px était un ajustement ad-hoc pour matcher l'ancien .kpi-grid, lui-même buggé
+    # -- désormais corrigé au même endroit, cf. test_report_css_kpi_grid_compensates_last_card_margin).
     css = _REPORT_CSS_PATH.read_text(encoding="utf-8")
     block = css.split(".chart-card--full {", 1)[1].split("}", 1)[0]
     assert "flex: 1 1 100%;" in block
-    assert "margin: 0 10px 16px 0;" in block
+    assert "margin: 0 16px 16px 0;" in block
+    row_block = css.split(".chart-row {", 1)[1].split("}", 1)[0]
+    assert "margin-right: -16px;" in row_block
+
+
+def test_report_css_kpi_grid_compensates_last_card_margin():
+    # .kpi-grid doit annuler la marge droite de la dernière card de chaque ligne (sinon les
+    # cards s'arrêtent 10px avant le bord réel de la card conteneur, cf. plaintes "les cards ne
+    # prennent pas toute la largeur" sur MTTK/C2/ThreatFox/Malicious URLs/Breaches).
+    css = _REPORT_CSS_PATH.read_text(encoding="utf-8")
+    block = css.split(".kpi-grid {", 1)[1].split("}", 1)[0]
+    assert "margin-right: -10px;" in block
 
 
 def test_report_css_donut_row_legend_uses_free_space():
@@ -443,11 +458,19 @@ def test_report_css_donut_row_legend_uses_free_space():
     assert "flex: 1 1 auto;" in legend_block
 
 
-def test_report_css_value_run_id_truncates_with_ellipsis():
+def test_report_css_value_run_id_displays_full_uuid_on_wide_card():
+    # L'ellipsis précédente cachait la moitié de l'UUID (36 caractères) au lieu de le tronquer
+    # proprement -- .kpi-card--wide double le flex-basis pour que le run_id complet tienne sans
+    # troncature (overflow:visible, plus d'ellipsis).
     css = _REPORT_CSS_PATH.read_text(encoding="utf-8")
-    block = css.split(".kpi-card .value--run-id {", 1)[1].split("}", 1)[0]
-    assert "text-overflow: ellipsis;" in block
-    assert "white-space: nowrap;" in block
+    run_id_block = css.split(".kpi-card .value--run-id {", 1)[1].split("}", 1)[0]
+    assert "overflow: visible;" in run_id_block
+    assert "text-overflow: ellipsis;" not in run_id_block
+    wide_block = css.split(".kpi-card--wide {", 1)[1].split("}", 1)[0]
+    assert "flex-basis: 260px;" in wide_block
+
+    template_src = (_TEMPLATE_DIR / "partials" / "_lineage.html.j2").read_text(encoding="utf-8")
+    assert "kpi-card--wide" in template_src
 
 
 def test_malicious_urls_template_uses_chart_card_full_class_not_inline_style():
@@ -625,8 +648,27 @@ def test_report_html_includes_breaches_right_after_malicious_urls():
     template_src = (_TEMPLATE_DIR / "report.html.j2").read_text(encoding="utf-8")
     malicious_urls_pos = template_src.index('partials/_malicious_urls.html.j2"')
     breaches_pos = template_src.index('partials/_breaches.html.j2"')
+    assert malicious_urls_pos < breaches_pos
+
+
+def test_report_html_top_countries_follows_c2_infra_not_breaches():
+    # top_countries.html.j2 se réfère explicitement aux "active C2 servers above" — doit suivre
+    # directement _c2_infra, pas être relégué après Breaches/ThreatFox/Malicious URLs comme avant.
+    template_src = (_TEMPLATE_DIR / "report.html.j2").read_text(encoding="utf-8")
+    c2_pos = template_src.index('partials/_c2_infra.html.j2"')
     top_countries_pos = template_src.index('partials/_top_countries.html.j2"')
-    assert malicious_urls_pos < breaches_pos < top_countries_pos
+    threatfox_pos = template_src.index('partials/_threatfox.html.j2"')
+    assert c2_pos < top_countries_pos < threatfox_pos
+
+
+def test_report_html_top_vendors_follows_cve_critical():
+    # top_vendors.html.j2 agrège les vendors des CVE critiques de la semaine — doit suivre
+    # _cve_critical, pas rester coincé après Breaches (aucun rapport avec les C2/breaches).
+    template_src = (_TEMPLATE_DIR / "report.html.j2").read_text(encoding="utf-8")
+    cve_pos = template_src.index('partials/_cve_critical.html.j2"')
+    top_vendors_pos = template_src.index('partials/_top_vendors.html.j2"')
+    kev_pos = template_src.index('partials/_kev.html.j2"')
+    assert cve_pos < top_vendors_pos < kev_pos
 
 
 def test_render_pdf_breaches_section_shows_spotlight_donut_and_bar_chart(tmp_path):

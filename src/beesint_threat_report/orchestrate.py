@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -607,6 +608,12 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
     period_end = datetime.now(UTC)
     period_start = period_end - timedelta(days=settings.report_window_days)
 
+    # GITHUB_RUN_ID est fourni automatiquement par tout job GitHub Actions (pas besoin de le
+    # déclarer dans le workflow) — remonté jusqu'au backend pour corréler un run interne à son
+    # run GitHub Actions par ID exact plutôt que par une heuristique de proximité de timestamp
+    # (tolérance 10 min côté backend, pouvait mal associer 2 runs proches).
+    github_run_id = os.environ.get("GITHUB_RUN_ID") or None
+
     base_path = resolve_base_path(settings)
     storage_options = resolve_storage_options(settings)
 
@@ -881,6 +888,7 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
             source_item_counts=source_item_counts,
             step_durations=step_durations,
             skip_email=skip_email,
+            github_run_id=github_run_id,
         )
 
         # publish_status() est le seul appel du pipeline sans try/except propre — une URL de
@@ -976,6 +984,7 @@ def finalize_manifest_and_index(
     source_item_counts: dict[str, int] | None = None,
     step_durations: dict[str, float] | None = None,
     skip_email: bool = False,
+    github_run_id: str | None = None,
 ) -> dict:
     run_entry = {
         "run_id": run_id,
@@ -995,11 +1004,24 @@ def finalize_manifest_and_index(
         "s3_pdf_key": s3_pdf_key,
         "s3_parquet_keys": s3_parquet_keys,
         "skip_email": skip_email,
+        "github_run_id": github_run_id,
         "created_at": datetime.now(UTC).isoformat(),
     }
 
     index = _read_json(base_path, storage_options, "runs/index.json") or []
     index.append(run_entry)
+    # Re-lecture juste avant écriture : réduit (sans l'éliminer, pas de verrou distribué sur S3 —
+    # surdimensionné pour un cron hebdo + déclenchement manuel occasionnel, la concurrence réelle
+    # est rare) la fenêtre de race d'un run concurrent qui écrirait runs/index.json entre notre
+    # lecture initiale et notre écriture. Sans ça, un run qui termine pendant que celui-ci tourne
+    # encore voit son entrée silencieusement écrasée (root cause plausible d'un run visible dans
+    # l'historique mais 404 sur pdf-url, ou d'un run qui disparaît complètement de l'historique).
+    latest = _read_json(base_path, storage_options, "runs/index.json") or []
+    known_run_ids = {entry.get("run_id") for entry in index}
+    for entry in latest:
+        if entry.get("run_id") not in known_run_ids:
+            index.append(entry)
+            known_run_ids.add(entry.get("run_id"))
     _write_json(base_path, storage_options, "runs/index.json", index)
 
     if status in {"success", "partial"}:

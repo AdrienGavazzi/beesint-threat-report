@@ -79,6 +79,14 @@ def _get_int(name: str, default: int) -> int:
         raise ValueError(f"{name}: valeur non castable en int: {raw!r}") from exc
 
 
+def _get_secret(name: str) -> str | None:
+    # .strip() : un secret GitHub Actions collé avec un `\n` de fin de ligne devient un header
+    # HTTP invalide ("Illegal header value b'...\n'") dans les extracteurs qui le posent tel
+    # quel (greynoise.py, breachdirectory.py) — jamais fiable de compter sur une valeur propre.
+    raw = os.environ.get(name)
+    return raw.strip() or None if raw else None
+
+
 def load_settings() -> Settings:
     storage_backend = os.environ.get("STORAGE_BACKEND", "local")
 
@@ -86,10 +94,10 @@ def load_settings() -> Settings:
         report_window_days=_get_int("REPORT_WINDOW_DAYS", 7),
         max_results_nvd=_get_int("MAX_RESULTS_NVD", 2000),
         max_results_kev=_get_int("MAX_RESULTS_KEV", 5000),
-        nvd_api_key=os.environ.get("NVD_API_KEY") or None,
-        threatfox_auth_key=os.environ.get("THREATFOX_AUTH_KEY") or None,
-        greynoise_api_key=os.environ.get("GREYNOISE_API_KEY") or None,
-        rapidapi_key=os.environ.get("RAPIDAPI_KEY") or None,
+        nvd_api_key=_get_secret("NVD_API_KEY"),
+        threatfox_auth_key=_get_secret("THREATFOX_AUTH_KEY"),
+        greynoise_api_key=_get_secret("GREYNOISE_API_KEY"),
+        rapidapi_key=_get_secret("RAPIDAPI_KEY"),
         storage_backend=storage_backend,
         s3_bucket=os.environ.get("ORACLE_S3_BUCKET") or None,
         s3_endpoint_url=os.environ.get("ORACLE_S3_ENDPOINT") or None,

@@ -1,3 +1,4 @@
+{% from "macros.html.j2" import source_link %}
 <section class="section" id="sec-malicious-urls">
   <h2 class="section-title">Malicious URLs Online</h2>
   <p class="section-desc">Live links currently hosting malware or phishing pages — still reachable by a victim clicking today.</p>
@@ -38,6 +39,7 @@
         <th>Threat type</th>
         <th>Tags</th>
         <th>Added</th>
+        <th>Link</th>
       </tr>
     </thead>
     <tbody>
@@ -47,6 +49,7 @@
         <td>{{ item.threat_type if item.threat_type else "N/A" }}</td>
         <td>{{ item.tags | join(", ") if item.tags else "-" }}</td>
         <td>{{ item.date_added | fmt_date_short }}</td>
+        <td>{{ source_link(item.url_full, "Open") }}</td>
       </tr>
       {% endfor %}
     </tbody>

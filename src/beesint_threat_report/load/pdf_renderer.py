@@ -27,6 +27,12 @@ def render_pdf(context: dict, output_path: Path) -> Path:
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(str(_TEMPLATE_DIR)),
         undefined=jinja2.StrictUndefined,
+        # autoescape actif : les seuls champs texte insérés viennent d'APIs externes (HIBP
+        # description, etc.) et peuvent contenir du HTML brut mal formé — un tag non fermé,
+        # une fois auto-échappé au lieu de rendu tel quel, ne peut plus "fuir" sur le reste du
+        # document. Le HTML/SVG généré en Python (charts, marqueurs) reste explicitement
+        # `| safe` dans les templates, cf. audit fait avant cette activation.
+        autoescape=jinja2.select_autoescape(["html.j2"]),
     )
     env.filters["fmt_date_short"] = _fmt_date_short
     template = env.get_template("report.html.j2")

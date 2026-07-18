@@ -62,8 +62,8 @@
         <td>{{ item.first_seen | fmt_date_short if item.first_seen else "N/A" }}</td>
         <td>{{ item.last_online | fmt_date_short if item.last_online else "N/A" }}</td>
         <td>
-          <span class="source-dot {{ 'source-dot-ok' if item.confirmed_by_spamhaus else 'source-dot-off' }}" title="Spamhaus DROP/EDROP"></span>
-          {% if item.greynoise_classification %}<span class="badge {{ 'badge-error' if item.greynoise_classification == 'malicious' else 'badge-neutral' }}">{{ item.greynoise_classification }}</span>{% else %}<span class="badge badge-neutral">N/A</span>{% endif %}
+          {% set spamhaus_cls = 'badge--spamhaus-ok' if item.confirmed_by_spamhaus else 'badge--spamhaus-off' %}
+          {% if item.greynoise_classification %}<span class="badge {{ 'badge-error' if item.greynoise_classification == 'malicious' else 'badge-neutral' }} {{ spamhaus_cls }}" title="Spamhaus DROP/EDROP: {{ 'confirmed' if item.confirmed_by_spamhaus else 'not listed' }}">{{ item.greynoise_classification }}</span>{% else %}<span class="badge badge-neutral {{ spamhaus_cls }}" title="Spamhaus DROP/EDROP: {{ 'confirmed' if item.confirmed_by_spamhaus else 'not listed' }}">N/A</span>{% endif %}
         </td>
       </tr>
       {% endfor %}
