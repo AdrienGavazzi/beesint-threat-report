@@ -174,6 +174,17 @@ class GreyNoiseClassification(BaseModel):
         return value
 
 
+class EpssScore(BaseModel):
+    """FIRST.org EPSS — epss_score/epss_percentile sont des probabilités [0, 1], la réponse API
+    les renvoie en string décimale (ex. "0.999990000") — parsées en float côté extract/epss.py
+    avant validation, jamais un champ str ici."""
+
+    model_config = ConfigDict(frozen=True)
+    cve_id: str
+    epss_score: float
+    epss_percentile: float
+
+
 class OpenPhishEntry(BaseModel):
     """Remplace PhishTankEntry (inscriptions PhishTank fermées, plus de clé API obtenable). Le
     flux public OpenPhish (feed.txt) est une simple liste d'URLs sans métadonnées par entrée
@@ -201,6 +212,40 @@ class ThreatFoxIoc(BaseModel):
     @classmethod
     def _force_utc(cls, value: datetime | None) -> datetime | None:
         return _to_utc(value) if value is not None else None
+
+
+class RansomwarePost(BaseModel):
+    """Une revendication de victime ransomware.live (posts.json) — VOLONTAIREMENT sans
+    post_title/website/post_url : ces 3 champs identifient/exposent la victime (nom d'entreprise,
+    domaine) ou pointent vers le leak site .onion lui-même. Pydantic v2 ignore les champs en trop
+    par défaut, donc même s'ils sont présents dans le dict brut, ils ne survivent jamais à
+    model_validate() — garantie au niveau du schéma, pas seulement une discipline de template en
+    aval (cf. décision produit "Ransomware Watch jamais nominatif")."""
+
+    model_config = ConfigDict(frozen=True)
+    group_name: str
+    activity: str = "Unknown"
+    country: str | None = None
+    discovered: datetime
+    published: datetime | None = None
+
+    @field_validator("discovered", "published")
+    @classmethod
+    def _force_utc(cls, value: datetime | None) -> datetime | None:
+        return _to_utc(value) if value is not None else None
+
+
+class RansomwareGroup(BaseModel):
+    """Un profil de groupe ransomware.live (groups.json) — `locations` (métadonnées de scraping
+    .onion) volontairement omis, ni utile ni sûr à conserver en mémoire au-delà du mapping."""
+
+    model_config = ConfigDict(frozen=True)
+    name: str
+    altname: str | None = None
+    lineage: str | None = None
+    description: str | None = None
+    is_raas: bool = False
+    victim_count_lifetime: int = 0
 
 
 def validate_batch(

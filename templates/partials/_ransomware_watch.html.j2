@@ -1,0 +1,77 @@
+{% from "macros.html.j2" import source_link %}
+{% if ransomware_watch.enabled %}
+<section class="section" id="sec-ransomware-watch">
+  <h2 class="section-title">Ransomware Watch</h2>
+  <p class="section-desc">Groups that posted a new victim to their leak site this week — sourced from ransomware.live's public leak-site tracker. Never includes victim names or leak-site links.</p>
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="value">{{ ransomware_watch.kpis.active_groups }}</div>
+      <div class="label">Active groups this week</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ ransomware_watch.kpis.total_victims }}</div>
+      <div class="label">Victims posted this week</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">
+        {% if ransomware_watch.kpis.trend_pct is none %}
+          N/A
+        {% elif ransomware_watch.kpis.trend_pct >= 0 %}
+          <span class="trend-up">+{{ ransomware_watch.kpis.trend_pct }}%</span>
+        {% else %}
+          <span class="trend-down">{{ ransomware_watch.kpis.trend_pct }}%</span>
+        {% endif %}
+      </div>
+      <div class="label">Trend vs previous run</div>
+    </div>
+  </div>
+
+  {% if ransomware_watch.groups %}
+  <table>
+    <thead>
+      <tr>
+        <th>Group</th>
+        <th>Victims this week</th>
+        <th>6-week trend</th>
+        <th>Victims lifetime</th>
+        <th>Model</th>
+        <th>Profile</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for group in ransomware_watch.groups %}
+      <tr>
+        <td>{{ group.name }}</td>
+        <td class="mono">{{ group.count }}</td>
+        <td>{% if group.sparkline %}<div class="kpi-spark">{{ group.sparkline | safe }}</div>{% else %}<span class="mono" style="color: var(--color-text-muted);">N/A</span>{% endif %}</td>
+        <td class="mono">{{ group.victim_count_lifetime }}</td>
+        <td>
+          {% if group.is_raas %}
+            <span class="badge badge-warning">RaaS</span>
+          {% else %}
+            <span class="badge badge-neutral">Private</span>
+          {% endif %}
+        </td>
+        <td>{{ source_link(group.profile_url, "ransomware.live") }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if ransomware_watch.sector_breakdown %}
+  <div class="breakdown-grid">
+    <div class="breakdown-col" style="flex-basis: 100%;">
+      <p class="chart-card-title">Targeted sectors this week</p>
+      {% if ransomware_watch.sector_chart %}
+      {{ ransomware_watch.sector_chart | safe }}
+      {% else %}
+      <div class="chip-list">
+        {% for item in ransomware_watch.sector_breakdown %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.sector }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endif %}

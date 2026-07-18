@@ -3,16 +3,21 @@ from datetime import UTC, datetime
 import polars as pl
 
 from beesint_threat_report.load.pdf_context import (
+    _build_cvss_epss_scatter_svg,
     _build_executive_summary,
+    _build_lollipop_chart_svg,
     _build_multi_donut_svg,
     _build_sparkline_svg,
     _c2_cross_confirmed,
     _format_breach_count,
+    _kev_items,
     _open_ports_breakdown,
+    _ransomware_watch_context,
     build_breach_items,
     build_c2_items,
     build_malicious_url_items,
     build_pdf_context,
+    epss_band_color,
 )
 from beesint_threat_report.transform.kpis import ReportKpis
 from beesint_threat_report.validate.schemas import BreachEntry
@@ -134,6 +139,66 @@ def test_build_pdf_context_surfaces_new_fields():
     assert context["cve"]["sparkline"] is not None
 
 
+# ---- _kev_items / epss_band_color / _build_cvss_epss_scatter_svg: EPSS -----------------------
+
+
+def test_kev_items_merges_epss_score():
+    kev_df = pl.DataFrame(
+        {
+            "cve_id": ["CVE-2021-44228", "CVE-2024-3400"],
+            "vendor_project": ["Apache", "Palo Alto"],
+            "product": ["Log4j", "PAN-OS"],
+            "date_added": [datetime(2021, 12, 10), datetime(2024, 4, 12)],
+            "known_ransomware_campaign_use": ["Known", "Unknown"],
+        }
+    )
+    epss_by_id = {"CVE-2021-44228": {"epss_score": 0.99999, "epss_percentile": 1.0}}
+    items = _kev_items(kev_df, epss_by_id)
+    by_id = {i["cve_id"]: i for i in items}
+    assert by_id["CVE-2021-44228"]["epss_score"] == 0.99999
+    assert by_id["CVE-2024-3400"]["epss_score"] is None
+
+
+def test_kev_items_defaults_epss_to_none_when_not_passed():
+    kev_df = pl.DataFrame(
+        {
+            "cve_id": ["CVE-2021-44228"],
+            "vendor_project": ["Apache"],
+            "product": ["Log4j"],
+            "date_added": [datetime(2021, 12, 10)],
+            "known_ransomware_campaign_use": ["Known"],
+        }
+    )
+    items = _kev_items(kev_df)
+    assert items[0]["epss_score"] is None
+
+
+def test_epss_band_color_thresholds():
+    assert epss_band_color(None) != epss_band_color(0.9)
+    high = epss_band_color(0.6)
+    med = epss_band_color(0.3)
+    low = epss_band_color(0.05)
+    assert len({high, med, low}) == 3  # 3 bandes distinctes
+
+
+def test_cvss_epss_scatter_none_below_min_items():
+    items = [{"cvss_score": 9.8, "epss_score": 0.9, "cve_id": f"CVE-{i}"} for i in range(3)]
+    assert _build_cvss_epss_scatter_svg(items) is None
+
+
+def test_cvss_epss_scatter_renders_at_min_items():
+    items = [{"cvss_score": 9.0 + i * 0.1, "epss_score": 0.1 * i, "cve_id": f"CVE-{i}"} for i in range(5)]
+    svg = _build_cvss_epss_scatter_svg(items)
+    assert svg is not None
+    assert "<svg" in svg
+    assert svg.count("<circle") == 5
+
+
+def test_cvss_epss_scatter_ignores_items_missing_either_score():
+    items = [{"cvss_score": 9.0, "epss_score": None, "cve_id": "a"}] * 5
+    assert _build_cvss_epss_scatter_svg(items) is None
+
+
 # ---- build_c2_items: passthrough des champs d'enrichissement (Shodan/Spamhaus/GreyNoise) ----
 
 
@@ -153,6 +218,7 @@ def test_build_c2_items_carries_new_enrichment_fields():
             "confirmed_by_spamhaus": True,
             "greynoise_classification": "malicious",
             "shodan_has_data": True,
+            "mitre_techniques": ["T1071.001", "T1105", "T1204.002"],
         }
     ]
     items = build_c2_items(top_ips)
@@ -161,6 +227,7 @@ def test_build_c2_items_carries_new_enrichment_fields():
     assert items[0]["confirmed_by_spamhaus"] is True
     assert items[0]["greynoise_classification"] == "malicious"
     assert items[0]["shodan_has_data"] is True
+    assert items[0]["mitre_techniques"] == ["T1071.001", "T1105", "T1204.002"]
 
 
 def test_build_c2_items_defaults_when_enrichment_missing():
@@ -170,6 +237,7 @@ def test_build_c2_items_defaults_when_enrichment_missing():
     assert items[0]["confirmed_by_spamhaus"] is False
     assert items[0]["greynoise_classification"] is None
     assert items[0]["shodan_has_data"] is False
+    assert items[0]["mitre_techniques"] == []
 
 
 # ---- build_malicious_url_items: champ "sources" (merge PhishTank) --------------------------
@@ -346,3 +414,62 @@ def test_build_multi_donut_svg_renders_one_arc_per_nonzero_segment():
     assert svg.count("<circle") == 2
     assert "BREACHES" in svg
     assert ">3<" in svg  # total au centre (2 + 0 + 1)
+
+
+# ---- _build_lollipop_chart_svg / _ransomware_watch_context (Ransomware Watch) -----------------
+
+
+def test_build_lollipop_chart_svg_none_below_min_items():
+    rows = [{"sector": "Healthcare", "count": 3}, {"sector": "Retail", "count": 2}]
+    assert _build_lollipop_chart_svg(rows, "sector") is None
+
+
+def test_build_lollipop_chart_svg_renders_one_mark_per_row():
+    rows = [
+        {"sector": "Manufacturing", "count": 6, "color": "#0EA5E9"},
+        {"sector": "Healthcare", "count": 4, "color": "#F59E0B"},
+        {"sector": "Retail", "count": 3, "color": "#22C55E"},
+    ]
+    svg = _build_lollipop_chart_svg(rows, "sector")
+    assert svg is not None
+    assert svg.count("<circle") == 3
+    assert "Manufacturing" in svg
+    assert "#0EA5E9" in svg
+
+
+def test_ransomware_watch_context_disabled_when_source_not_ok():
+    watch = {"kpis": {"active_groups": 1, "total_victims": 1, "trend_pct": None}, "groups": [], "sector_breakdown": []}
+    result = _ransomware_watch_context(watch, {"ransomware_live": "failed"})
+    assert result["enabled"] is False
+    assert result["groups"] == []
+
+
+def test_ransomware_watch_context_disabled_when_no_data():
+    assert _ransomware_watch_context(None, {"ransomware_live": "ok"})["enabled"] is False
+
+
+def test_ransomware_watch_context_builds_groups_and_sector_chart():
+    watch = {
+        "kpis": {"active_groups": 2, "total_victims": 5, "trend_pct": -10.0},
+        "groups": [
+            {
+                "name": "lockbit3",
+                "count": 3,
+                "victim_count_lifetime": 100,
+                "is_raas": True,
+                "sparkline_weekly_counts": [1, 2, 3, 2, 3, 3],
+                "profile_url": "https://www.ransomware.live/group/lockbit3",
+            },
+        ],
+        "sector_breakdown": [
+            {"sector": "Healthcare", "count": 3, "pct_of_total": 60.0},
+            {"sector": "Retail", "count": 1, "pct_of_total": 20.0},
+            {"sector": "Finance", "count": 1, "pct_of_total": 20.0},
+        ],
+    }
+    result = _ransomware_watch_context(watch, {"ransomware_live": "ok"})
+    assert result["enabled"] is True
+    assert result["kpis"]["active_groups"] == 2
+    assert result["groups"][0]["sparkline"] is not None
+    assert result["sector_breakdown"][0]["color"]
+    assert result["sector_chart"] is not None

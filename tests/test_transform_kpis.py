@@ -101,3 +101,54 @@ def test_compute_kpis_cold_start_new_trend_fields_none():
     assert kpis.kev_new_trend_pct is None
     assert kpis.c2_active_trend_pct is None
     assert kpis.malicious_url_trend_pct is None
+
+
+def test_compute_kpis_ransomware_counts_default_to_zero():
+    cve_df = pl.DataFrame({"cve_id": ["CVE-1"], "vendor": ["acme"], "cwe_ids": [[]]})
+    kev_df = pl.DataFrame({"cve_id": [], "due_date": [], "known_ransomware_campaign_use": []})
+    feodo_df = pl.DataFrame({"ip_address": [], "status": [], "country": []})
+    urlhaus_df = pl.DataFrame({"url": [], "url_status": []})
+
+    kpis = compute_kpis(cve_df, kev_df, feodo_df, urlhaus_df, mean_time_to_kev=None, previous_kpis=None)
+
+    assert kpis.ransomware_active_groups_count == 0
+    assert kpis.ransomware_victim_count == 0
+    assert kpis.ransomware_active_groups_trend_pct is None
+    assert kpis.ransomware_victim_count_trend_pct is None
+
+
+def test_compute_kpis_ransomware_trend_vs_previous():
+    cve_df = pl.DataFrame({"cve_id": ["CVE-1"], "vendor": ["acme"], "cwe_ids": [[]]})
+    kev_df = pl.DataFrame({"cve_id": [], "due_date": [], "known_ransomware_campaign_use": []})
+    feodo_df = pl.DataFrame({"ip_address": [], "status": [], "country": []})
+    urlhaus_df = pl.DataFrame({"url": [], "url_status": []})
+    previous = ReportKpis(
+        cve_critical_count=0,
+        cve_critical_trend_pct=None,
+        cve_high_count=0,
+        kev_new_count=0,
+        kev_urgent_count=0,
+        kev_ransomware_count=0,
+        mean_time_to_kev_days=None,
+        c2_active_count=0,
+        malicious_url_count=0,
+        top_countries=[],
+        top_vendors=[],
+        cwe_distribution=[],
+        ransomware_active_groups_count=20,
+        ransomware_victim_count=100,
+    )
+    kpis = compute_kpis(
+        cve_df,
+        kev_df,
+        feodo_df,
+        urlhaus_df,
+        mean_time_to_kev=None,
+        previous_kpis=previous,
+        ransomware_active_groups_count=32,
+        ransomware_victim_count=163,
+    )
+    assert kpis.ransomware_active_groups_count == 32
+    assert kpis.ransomware_victim_count == 163
+    assert kpis.ransomware_active_groups_trend_pct == 60.0
+    assert kpis.ransomware_victim_count_trend_pct == 63.0

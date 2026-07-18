@@ -26,7 +26,7 @@
     </div>
   </div>
 
-  {% if cve.severity_donut or cve.cvss_histogram %}
+  {% if cve.severity_donut or cve.cvss_histogram or cve.cvss_epss_scatter %}
   <div class="chart-row">
     {% if cve.severity_donut %}
     <div class="chart-card">
@@ -46,6 +46,13 @@
       {{ cve.cvss_histogram | safe }}
     </div>
     {% endif %}
+    {% if cve.cvss_epss_scatter %}
+    <div class="chart-card">
+      <p class="chart-card-title">CVSS &times; EPSS — real exploitation priority</p>
+      {{ cve.cvss_epss_scatter | safe }}
+      <p class="section-desc" style="margin-top: 6px; font-size: 8px;">Top-right = patch first (severe AND likely exploited). Color: <span style="color:#22C55E;">green</span> &lt;0.1, <span style="color:#F59E0B;">amber</span> 0.1-0.5, <span style="color:#EF4444;">red</span> &gt;0.5 EPSS.</p>
+    </div>
+    {% endif %}
   </div>
   {% endif %}
 
@@ -56,6 +63,7 @@
         <th class="mono">CVE</th>
         <th>Description</th>
         <th>CVSS</th>
+        <th>EPSS</th>
         <th>Published</th>
         <th>Vendor</th>
         <th>Link</th>
@@ -67,6 +75,13 @@
         <td class="mono">{{ item.cve_id }}</td>
         <td>{{ item.description }}</td>
         <td class="mono">{{ item.cvss_score if item.cvss_score is not none else "N/A" }}</td>
+        <td>
+          {% if item.epss_score is not none %}
+            {% if item.epss_score > 0.5 %}<span class="badge badge-error">{{ "%.2f"|format(item.epss_score) }}</span>
+            {% elif item.epss_score > 0.1 %}<span class="badge badge-warning">{{ "%.2f"|format(item.epss_score) }}</span>
+            {% else %}<span class="badge badge-success">{{ "%.2f"|format(item.epss_score) }}</span>{% endif %}
+          {% else %}<span class="mono" style="color: var(--color-text-muted);">N/A</span>{% endif %}
+        </td>
         <td>{{ item.published_date | fmt_date_short }}</td>
         <td>{{ item.vendor if item.vendor else "N/A" }}</td>
         <td>{{ source_link("https://nvd.nist.gov/vuln/detail/" ~ item.cve_id, "NVD") }}</td>

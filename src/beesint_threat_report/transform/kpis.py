@@ -28,6 +28,10 @@ class ReportKpis:
     kev_new_trend_pct: float | None = None
     c2_active_trend_pct: float | None = None
     malicious_url_trend_pct: float | None = None
+    ransomware_active_groups_count: int = 0
+    ransomware_active_groups_trend_pct: float | None = None
+    ransomware_victim_count: int = 0
+    ransomware_victim_count_trend_pct: float | None = None
 
 
 def _trend_pct(current: int, previous: int | None) -> float | None:
@@ -58,6 +62,8 @@ def compute_kpis(
     previous_kpis: ReportKpis | None,
     cve_high_count: int = 0,
     threatfox_iocs: list | None = None,
+    ransomware_active_groups_count: int = 0,
+    ransomware_victim_count: int = 0,
 ) -> ReportKpis:
     cve_critical_count = cve_df.height
 
@@ -124,5 +130,14 @@ def compute_kpis(
         c2_active_trend_pct=_trend_pct(c2_active_count, previous_kpis.c2_active_count if previous_kpis else None),
         malicious_url_trend_pct=_trend_pct(
             malicious_url_count, previous_kpis.malicious_url_count if previous_kpis else None
+        ),
+        ransomware_active_groups_count=ransomware_active_groups_count,
+        ransomware_active_groups_trend_pct=_trend_pct(
+            ransomware_active_groups_count,
+            previous_kpis.ransomware_active_groups_count if previous_kpis else None,
+        ),
+        ransomware_victim_count=ransomware_victim_count,
+        ransomware_victim_count_trend_pct=_trend_pct(
+            ransomware_victim_count, previous_kpis.ransomware_victim_count if previous_kpis else None
         ),
     )

@@ -85,11 +85,14 @@ def minimal_context() -> dict:
                     "cvss_score": 9.8,
                     "published_date": "2026-06-02",
                     "vendor": "acme",
+                    "epss_score": 0.94,
+                    "epss_percentile": 0.99,
                 }
             ],
             "sparkline": None,
             "severity_donut": None,
             "cvss_histogram": None,
+            "cvss_epss_scatter": None,
         },
         "kev": {
             "new_count": 1,
@@ -102,6 +105,7 @@ def minimal_context() -> dict:
                     "product": "Widget",
                     "date_added": "2026-06-03",
                     "ransomware_known_use": True,
+                    "epss_score": 0.94,
                 }
             ],
             "urgency_flag": True,
@@ -130,6 +134,7 @@ def minimal_context() -> dict:
                     # Couleur par rang IP (cf. CDC Phase P4 "color by IP") — consommée par la
                     # colonne IP du tableau (style inline), plus par malware_family/ASN.
                     "color": "#0EA5E9",
+                    "mitre_techniques": ["T1071.001", "T1105"],
                 }
             ],
             "sparkline": None,
@@ -190,6 +195,7 @@ def minimal_context() -> dict:
             "impact_chart": None,
         },
         "threatfox": {"enabled": False, "families_count": 0, "families_trend_pct": None, "sparkline": None},
+        "ransomware_watch": {"enabled": False, "kpis": {}, "groups": [], "sector_breakdown": [], "sector_chart": None},
         "geo": {
             "top_countries": [
                 {"country_name": "United States", "country_code": "US", "count": 3, "pct_of_total": 60.0},

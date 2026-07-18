@@ -88,6 +88,32 @@ def test_build_report_payload_is_json_serializable_and_matches_contract():
     assert payload["malicious_url_threat_type_breakdown"] == [
         {"threat_type": "phishing", "count": 2, "pct_of_total": 100.0}
     ]
+    assert payload["kpis"]["ransomware_victim_count"] == 0
+    assert payload["ransomware_watch"] is None
+
+
+def test_build_report_payload_carries_ransomware_watch_through():
+    watch = {
+        "kpis": {"active_groups": 32, "total_victims": 163, "trend_pct": -32.6},
+        "groups": [{"name": "lockbit3", "count": 4, "sparkline_weekly_counts": [1, 2, 3, 4, 5, 4]}],
+        "sector_breakdown": [{"sector": "Healthcare", "count": 3, "pct_of_total": 33.3}],
+    }
+    payload = build_report_payload(
+        run_id="run-1",
+        period_start="2026-06-01T00:00:00+00:00",
+        period_end="2026-06-08T00:00:00+00:00",
+        status="success",
+        kpis=_kpis(),
+        top_cves=[],
+        top_ips=[],
+        pipeline_duration_seconds=1.0,
+        sources_status={},
+        c2_items=[],
+        malicious_url_items=[],
+        ransomware_watch=watch,
+    )
+    json.dumps(payload)  # ne doit pas lever
+    assert payload["ransomware_watch"] == watch
 
 
 def test_write_report_json_correct_path(tmp_path):

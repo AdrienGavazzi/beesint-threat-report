@@ -21,6 +21,9 @@ SPAMHAUS_DROP_URL = "https://www.spamhaus.org/drop/drop.txt"
 SPAMHAUS_EDROP_URL = "https://www.spamhaus.org/drop/edrop.txt"
 OPENPHISH_URL = "https://openphish.com/feed.txt"
 HIBP_URL = "https://haveibeenpwned.com/api/v3/breaches"
+EPSS_URL = "https://api.first.org/data/v1/epss"
+RANSOMWARE_POSTS_URL = "https://data.ransomware.live/posts.json"
+RANSOMWARE_GROUPS_URL = "https://data.ransomware.live/groups.json"
 
 BUCKET = "test-threat-report-bucket"
 
@@ -116,6 +119,15 @@ def _mock_all_sources(mock, feodo_up: bool = True):
     # l'orchestration S3/statuts. BreachDirectory n'a pas besoin de mock : rapidapi_key est absente
     # de _settings() ci-dessous, donc "skipped:no_api_key" avant tout appel réseau.
     mock.get(HIBP_URL).mock(return_value=httpx.Response(200, json=[]))
+    # EPSS — flux public sans clé, toujours appelé sur les CVE critiques/KEV du run. Mocké
+    # "aucun score" pour la même raison que Shodan/Spamhaus/OpenPhish/HIBP ci-dessus : le parsing
+    # est déjà testé dans test_extract_epss.py / test_orchestrate_new_sources.py.
+    mock.get(EPSS_URL).mock(return_value=httpx.Response(200, json={"status": "OK", "data": []}))
+    # ransomware.live — 2 dumps statiques publics sans clé, toujours appelés. Mockés "vides" pour
+    # la même raison que les sources ci-dessus : le mapping/filtrage est déjà testé dans
+    # test_extract_ransomware_live.py / test_transform_ransomware.py.
+    mock.get(RANSOMWARE_POSTS_URL).mock(return_value=httpx.Response(200, json=[]))
+    mock.get(RANSOMWARE_GROUPS_URL).mock(return_value=httpx.Response(200, json=[]))
 
 
 @pytest.mark.asyncio

@@ -29,13 +29,18 @@ cloud.
 | Enrichissement cross-source (Shodan InternetDB, Spamhaus DROP/EDROP, GreyNoise) | Fusion de signaux multi-feeds sur une même entité, pas de section isolée par source | Threat intel enrichment, data fusion |
 | HaveIBeenPwned + BreachDirectory (cross-check) | Intégration API tierce, dégradation propre sans clé optionnelle | API integration, graceful degradation |
 | Jinja2 autoescape + sanitisation HTML | Sécurité du rendu (contenu texte sourcé d'APIs externes) | Output encoding, template security |
+| EPSS (FIRST.org) mergé sur CVE/KEV | Priorisation de patch basée sur une probabilité réelle d'exploitation, pas seulement la sévérité CVSS | Vulnerability prioritization, risk scoring |
+| Découverte d'endpoint réel vs documentation officielle (ransomware.live) | Investigation API rigoureuse (inspection CSP), ne pas se fier à une doc obsolète | API reverse engineering, due diligence |
+| Garantie éthique au niveau du schéma Pydantic (pas juste du template) | Les champs sensibles (nom de victime, lien de fuite) sont structurellement absents du modèle validé, jamais juste "non affichés" | Privacy by design, data minimization |
 
 ## Rapport PDF — WeasyPrint
 
 Rendu HTML→PDF sans dépendance navigateur (WeasyPrint + Jinja2), charts et carte du monde générés
 en SVG pur côté Python (aucun appel réseau au moment du rendu — un run ne doit jamais dépendre
-d'un service de tuiles tiers pour produire un chart). Sections : CVE critiques, CISA KEV,
-Mean-Time-to-KEV, infrastructure C2 active (carte + tableau enrichi multi-sources), malware
+d'un service de tuiles tiers pour produire un chart). Sections : CVE critiques (avec score EPSS et
+scatter CVSS×EPSS), CISA KEV, **Ransomware Watch** (groupes actifs, sparkline 6 semaines,
+secteurs ciblés — jamais de nom de victime ni de lien de fuite), Mean-Time-to-KEV, infrastructure
+C2 active (carte + tableau enrichi multi-sources + techniques MITRE ATT&CK par IP), malware
 families (ThreatFox), URLs malveillantes, breaches de la semaine (HaveIBeenPwned), attribution des
 sources et traçabilité complète du run.
 
@@ -73,6 +78,10 @@ Traits pointillés = composants externes à ce repo, gérés par les repos `bees
 
 ![Rapport — breaches de la semaine](docs/screenshots/report-breaches-this-week.png)
 *Rapport — breaches this week (spotlight HaveIBeenPwned), CWE breakdown et traçabilité du run*
+
+![Rapport — Ransomware Watch](docs/screenshots/report-ransomware-watch.png)
+*Rapport — Ransomware Watch (groupes actifs, sparkline 6 semaines par groupe, secteurs ciblés en
+lollipop chart — source ransomware.live, jamais de nom de victime ni de lien de fuite)*
 
 ## Quickstart
 
@@ -164,6 +173,14 @@ Cloud) :
   optionnel (`GREYNOISE_API_KEY`).
 - **OpenPhish** : flux public d'URLs de phishing, gratuit sans clé (remplace PhishTank, dont les
   inscriptions sont fermées).
+- **FIRST.org EPSS** (Exploit Prediction Scoring System) : score de probabilité d'exploitation par
+  CVE, gratuit sans clé, mergé sur les CVE critiques et les entrées KEV.
+- **ransomware.live** : tracker communautaire des sites de fuite ransomware. Endpoints réels
+  utilisés : `data.ransomware.live/posts.json` et `.../groups.json` (dumps statiques complets),
+  distincts de l'API documentée `api.ransomware.live/v2/*` qui retourne 404 — découverts par
+  inspection des en-têtes CSP de ransomware.live plutôt qu'en se fiant à la documentation officielle
+  obsolète. Section volontairement dépourvue de nom de victime et de lien de fuite (garantie au
+  niveau du schéma Pydantic, voir CLAUDE.md).
 
 ## Licence
 

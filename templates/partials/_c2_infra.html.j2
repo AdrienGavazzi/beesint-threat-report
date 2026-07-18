@@ -47,6 +47,7 @@
         <th>Country</th>
         <th>ASN</th>
         <th>Malware family</th>
+        <th>MITRE ATT&amp;CK</th>
         <th>First seen</th>
         <th>Last online</th>
         <th>Signals</th>
@@ -59,6 +60,9 @@
         <td>{{ item.country if item.country else "N/A" }}</td>
         <td class="mono">{{ item.asn if item.asn else "N/A" }}</td>
         <td>{{ item.malware_family if item.malware_family else "N/A" }}</td>
+        <td>
+          {% if item.mitre_techniques %}{% for technique in item.mitre_techniques %}<span class="chip" style="color: var(--color-entity-organization); border-color: var(--color-entity-organization);">{{ technique }}</span>{% endfor %}{% else %}<span class="mono" style="color: var(--color-text-muted);">N/A</span>{% endif %}
+        </td>
         <td>{{ item.first_seen | fmt_date_short if item.first_seen else "N/A" }}</td>
         <td>{{ item.last_online | fmt_date_short if item.last_online else "N/A" }}</td>
         <td>

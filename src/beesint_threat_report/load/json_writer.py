@@ -23,6 +23,7 @@ def build_report_payload(
     c2_items: list[dict],
     malicious_url_items: list[dict],
     is_cold_start: bool = False,
+    ransomware_watch: dict | None = None,
 ) -> dict:
     return {
         "run_id": run_id,
@@ -46,10 +47,18 @@ def build_report_payload(
             "malicious_url_trend_pct": kpis.malicious_url_trend_pct,
             "threatfox_malware_families_count": kpis.threatfox_malware_families_count,
             "threatfox_malware_families_trend_pct": kpis.threatfox_malware_families_trend_pct,
+            "ransomware_active_groups_count": kpis.ransomware_active_groups_count,
+            "ransomware_active_groups_trend_pct": kpis.ransomware_active_groups_trend_pct,
+            "ransomware_victim_count": kpis.ransomware_victim_count,
+            "ransomware_victim_count_trend_pct": kpis.ransomware_victim_count_trend_pct,
         },
         "cves": top_cves,
         "malicious_ips": top_ips,
         "malicious_urls": malicious_url_items,
+        # groups[].sparkline_weekly_counts est une liste de nombres bruts, jamais un SVG
+        # pré-rendu — PDF et frontend génèrent chacun leur propre visuel depuis ces mêmes
+        # chiffres (cf. décision produit "les deux rendus ne partagent jamais une image").
+        "ransomware_watch": ransomware_watch,
         "top_countries": kpis.top_countries,
         "top_vendors": kpis.top_vendors,
         "cwe_breakdown": [{"cwe": row["cwe_id"], "count": row["count"]} for row in kpis.cwe_distribution],

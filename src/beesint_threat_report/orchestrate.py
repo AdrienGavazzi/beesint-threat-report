@@ -17,18 +17,21 @@ from beesint_threat_report.cache.store import cache_key, get_or_fetch
 from beesint_threat_report.config import Settings, load_settings, resolve_base_path, resolve_storage_options
 from beesint_threat_report.extract import (
     breachdirectory,
+    epss,
     feodo,
     greynoise,
     hibp,
     kev,
     nvd,
     openphish,
+    ransomware_live,
     shodan_internetdb,
     spamhaus_drop,
     threatfox,
     urlhaus,
 )
 from beesint_threat_report.load.json_writer import build_report_payload, write_report_json
+from beesint_threat_report.load.mitre_attack_map import mitre_technique_ids
 from beesint_threat_report.load.parquet_writer import write_historical_parquet
 from beesint_threat_report.load.pdf_context import (
     build_breach_items,
@@ -42,6 +45,7 @@ from beesint_threat_report.publish.webhook import publish_status
 from beesint_threat_report.transform import dedup, diffing, geoloc, mttk, ranking
 from beesint_threat_report.transform import kpis as kpis_module
 from beesint_threat_report.transform.openphish_merge import merge_openphish_urls
+from beesint_threat_report.transform.ransomware import build_group_aggregates, build_sector_breakdown
 from beesint_threat_report.transform.threatfox import merge_threatfox_ip_iocs
 from beesint_threat_report.validate.frames import (
     validate_cve_frame,
@@ -52,11 +56,14 @@ from beesint_threat_report.validate.frames import (
 )
 from beesint_threat_report.validate.schemas import (
     BreachEntry,
+    EpssScore,
     FeodoIpRecord,
     GreyNoiseClassification,
     KevEntry,
     NvdCveRecord,
     OpenPhishEntry,
+    RansomwareGroup,
+    RansomwarePost,
     ShodanInternetDbRecord,
     SpamhausRange,
     ThreatFoxIoc,
@@ -466,6 +473,55 @@ async def _run_openphish_source(
         return [], "failed"
 
 
+async def _run_ransomware_live_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    run_id: str,
+    period_start,
+    period_end,
+    base_path: str,
+    storage_options: dict | None,
+) -> tuple[list[RansomwarePost], list[RansomwarePost], list[RansomwareGroup], str]:
+    """Ransomware Watch — section indépendante (cf. CLAUDE.md exception à "toujours enrichir une
+    entité existante", aucune entité trackée ne couvre ce sujet). posts.json est un dump complet
+    (~20 Mo, ~30k lignes) sans filtre de date côté serveur : on filtre les dicts BRUTS par
+    fenêtre AVANT validate_batch (ordre inversé par rapport à hibp/kev) — valider la totalité du
+    dump pour n'en garder qu'une fraction serait un gâchis qui empirera avec sa croissance."""
+    try:
+        posts_key = cache_key("ransomware_live_posts", {"date": period_end.strftime("%Y-%m-%d")})
+        raw_posts = await get_or_fetch(
+            posts_key,
+            lambda: ransomware_live.fetch_ransomware_posts(client, settings.ransomware_live_posts_url),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+        groups_key = cache_key("ransomware_live_groups", {"date": period_end.strftime("%Y-%m-%d")})
+        raw_groups = await get_or_fetch(
+            groups_key,
+            lambda: ransomware_live.fetch_ransomware_groups(client, settings.ransomware_live_groups_url),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+
+        window_raw = ransomware_live.filter_posts_by_window(raw_posts, period_start, period_end)
+        last_n_weeks_raw = ransomware_live.filter_posts_last_n_weeks(raw_posts, period_end)
+
+        posts_this_week, rejected_posts = validate_batch(
+            window_raw, RansomwarePost, source="ransomware_live", run_id=run_id
+        )
+        _write_quarantine(base_path, storage_options, "ransomware_live_posts", run_id, rejected_posts)
+        posts_last_n_weeks, _ = validate_batch(
+            last_n_weeks_raw, RansomwarePost, source="ransomware_live", run_id=run_id
+        )
+        groups, rejected_groups = validate_batch(raw_groups, RansomwareGroup, source="ransomware_live", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "ransomware_live_groups", run_id, rejected_groups)
+
+        return posts_this_week, posts_last_n_weeks, groups, "ok"
+    except Exception:
+        logger.exception("ransomware_live: échec de la source, run continue en dégradé")
+        return [], [], [], "failed"
+
+
 async def _run_hibp_source(
     client: httpx.AsyncClient,
     settings: Settings,
@@ -515,13 +571,45 @@ async def _run_breachdirectory_source(
         return 0, "failed"
 
 
-def _build_top_cves(ranked_cve_df: pl.DataFrame, kev_df: pl.DataFrame) -> list[dict]:
+async def _run_epss_source(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    run_id: str,
+    cve_ids: list[str],
+    base_path: str,
+    storage_options: dict | None,
+) -> tuple[dict[str, dict], str]:
+    """N'appelle EPSS QUE sur les CVE déjà retenus (critiques top-N + KEV de ce run), jamais sur
+    un feed complet — même principe "top-N déjà réduit" que Shodan/Spamhaus/GreyNoise."""
+    if not cve_ids:
+        return {}, "skipped:no_cve_this_run"
+    try:
+        key = cache_key("epss", {"cve_ids": sorted(cve_ids)})
+        raw = await get_or_fetch(
+            key,
+            lambda: epss.fetch_epss_scores(client, cve_ids, settings.epss_base_url),
+            settings.cache_dir,
+            settings.force_refresh,
+        )
+        valid, rejected = validate_batch(raw, EpssScore, source="epss", run_id=run_id)
+        _write_quarantine(base_path, storage_options, "epss", run_id, rejected)
+        return {r.cve_id: {"epss_score": r.epss_score, "epss_percentile": r.epss_percentile} for r in valid}, "ok"
+    except Exception:
+        logger.exception("epss: échec de la source, run continue en dégradé")
+        return {}, "failed"
+
+
+def _build_top_cves(
+    ranked_cve_df: pl.DataFrame, kev_df: pl.DataFrame, epss_by_id: dict[str, dict] | None = None
+) -> list[dict]:
     if ranked_cve_df.height == 0:
         return []
     kev_by_id = {row["cve_id"]: row for row in kev_df.to_dicts()} if kev_df.height else {}
+    epss_by_id = epss_by_id or {}
     result = []
     for row in ranked_cve_df.to_dicts():
         kev_row = kev_by_id.get(row["cve_id"])
+        epss_row = epss_by_id.get(row["cve_id"])
         cwe_ids = row.get("cwe_ids") or []
         result.append(
             {
@@ -543,6 +631,8 @@ def _build_top_cves(ranked_cve_df: pl.DataFrame, kev_df: pl.DataFrame) -> list[d
                 "kev_added_date": kev_row["date_added"].isoformat()
                 if kev_row and hasattr(kev_row["date_added"], "isoformat")
                 else None,
+                "epss_score": epss_row["epss_score"] if epss_row else None,
+                "epss_percentile": epss_row["epss_percentile"] if epss_row else None,
             }
         )
     return result
@@ -589,6 +679,7 @@ def _build_top_ips(
                 "shodan_has_data": s is not None,
                 "confirmed_by_spamhaus": ip in spamhaus_confirmed,
                 "greynoise_classification": greynoise_classifications.get(ip),
+                "mitre_techniques": mitre_technique_ids(row.get("malware")),
             }
         )
     return result
@@ -666,6 +757,17 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
         sources_status["hibp"] = hibp_status
         sentry_breadcrumb_run_step("extract_hibp", hibp_status)
 
+        (
+            ransomware_posts_week,
+            ransomware_posts_6w,
+            ransomware_groups,
+            ransomware_live_status,
+        ) = await _run_ransomware_live_source(
+            client, settings, run_id, period_start, period_end, base_path, storage_options
+        )
+        sources_status["ransomware_live"] = ransomware_live_status
+        sentry_breadcrumb_run_step("extract_ransomware_live", ransomware_live_status)
+
         ip_frame = merge_threatfox_ip_iocs(feodo_df, threatfox_iocs)
         if ip_frame.height:
             ip_frame = validate_ip_threat_frame(ip_frame)
@@ -689,6 +791,20 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
         ranked_ips = ranking.rank_top_n_ips(ip_frame, n=10) if ip_frame.height else ip_frame
         ranked_urls = ranking.rank_top_n_urls(url_frame, n=10) if url_frame.height else url_frame
         ranked_breaches = ranking.rank_top_n_breaches(hibp_entries, n=10)
+
+        # EPSS interrogé uniquement sur les CVE déjà retenus (critiques top-N + KEV de ce run,
+        # dédupliqués) — jamais un feed complet, même principe que Shodan/Spamhaus/GreyNoise.
+        epss_cve_ids = sorted(
+            {
+                *(ranked_cves["cve_id"].to_list() if ranked_cves.height else []),
+                *(kev_df["cve_id"].to_list() if kev_df.height else []),
+            }
+        )
+        epss_data, epss_status = await _run_epss_source(
+            client, settings, run_id, epss_cve_ids, base_path, storage_options
+        )
+        sources_status["epss"] = epss_status
+        sentry_breadcrumb_run_step("extract_epss", epss_status)
 
         geo: dict[str, dict] = {}
         ip_list: list[str] = []
@@ -749,18 +865,52 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
             "spamhaus": len(spamhaus_confirmed),
             "greynoise": len(greynoise_data),
             "hibp": len(hibp_entries),
+            "epss": len(epss_data),
+            "ransomware_live": len(ransomware_posts_week),
         }
         extract_done_at = time.monotonic()
 
+        ransomware_active_groups_count = len(
+            {ransomware_live.normalize_group_name(p.group_name) for p in ransomware_posts_week}
+        )
+        ransomware_victim_count = len(ransomware_posts_week)
+
         previous_kpis = _kpis_from_manifest(manifest)
         report_kpis = kpis_module.compute_kpis(
-            cve_df, kev_df, ip_frame, urlhaus_df, mean_time_to_kev, previous_kpis, cve_high_count, threatfox_iocs
+            cve_df,
+            kev_df,
+            ip_frame,
+            urlhaus_df,
+            mean_time_to_kev,
+            previous_kpis,
+            cve_high_count,
+            threatfox_iocs,
+            ransomware_active_groups_count,
+            ransomware_victim_count,
         )
 
-        top_cves = _build_top_cves(ranked_cves, kev_df)
+        top_cves = _build_top_cves(ranked_cves, kev_df, epss_data)
+        epss_high_priority_count = sum(1 for c in top_cves if (c.get("epss_score") or 0) > 0.5)
         top_ips = _build_top_ips(ranked_ips, geo, shodan_data, spamhaus_confirmed, greynoise_data)
         c2_items = build_c2_items(top_ips)
         malicious_url_items = build_malicious_url_items(ranked_urls)
+
+        # Ransomware Watch (section indépendante, cf. CLAUDE.md) — jointure groups.json par nom
+        # normalisé (cf. ransomware_live.normalize_group_name).
+        groups_by_normalized_name = {ransomware_live.normalize_group_name(g.name): g for g in ransomware_groups}
+        ransomware_group_rows = build_group_aggregates(
+            ransomware_posts_week, ransomware_posts_6w, groups_by_normalized_name, period_end
+        )
+        ransomware_sector_breakdown = build_sector_breakdown(ransomware_posts_week)
+        ransomware_watch_context = {
+            "kpis": {
+                "active_groups": report_kpis.ransomware_active_groups_count,
+                "total_victims": report_kpis.ransomware_victim_count,
+                "trend_pct": report_kpis.ransomware_victim_count_trend_pct,
+            },
+            "groups": ransomware_group_rows,
+            "sector_breakdown": ransomware_sector_breakdown,
+        }
         breach_items = build_breach_items(ranked_breaches, breachdirectory_count)
         transform_done_at = time.monotonic()
 
@@ -811,6 +961,7 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
                 kpis=report_kpis,
                 critical_items=top_cves,
                 kev_df=kev_df,
+                epss_by_id=epss_data,
                 mttk_median_days=median_time_to_kev,
                 mttk_sample_size=mttk_sample_size,
                 kev_remediation_window_days=kev_remediation_window_days,
@@ -822,6 +973,7 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
                 sources_status=sources_status,
                 is_cold_start=is_cold_start,
                 history_entries=history_entries,
+                ransomware_watch=ransomware_watch_context,
             )
             render_pdf(pdf_context, local_pdf_path)
 
@@ -855,6 +1007,7 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
             c2_items=c2_items,
             malicious_url_items=malicious_url_items,
             is_cold_start=is_cold_start,
+            ransomware_watch=ransomware_watch_context,
         )
 
         s3_json_key = None
@@ -889,6 +1042,7 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
             step_durations=step_durations,
             skip_email=skip_email,
             github_run_id=github_run_id,
+            epss_high_priority_count=epss_high_priority_count,
         )
 
         # publish_status() est le seul appel du pipeline sans try/except propre — une URL de
@@ -985,6 +1139,7 @@ def finalize_manifest_and_index(
     step_durations: dict[str, float] | None = None,
     skip_email: bool = False,
     github_run_id: str | None = None,
+    epss_high_priority_count: int = 0,
 ) -> dict:
     run_entry = {
         "run_id": run_id,
@@ -999,6 +1154,12 @@ def finalize_manifest_and_index(
         "c2_active_count": kpis.c2_active_count,
         "malicious_url_count": kpis.malicious_url_count,
         "threatfox_malware_families_count": kpis.threatfox_malware_families_count,
+        # Compteurs légers pour les tendances multi-runs de la page publique globale — jamais de
+        # liste/détail ici (ça vit uniquement dans le report-<run_id>.json complet), cf. décision
+        # produit "index léger vs rapport complet".
+        "ransomware_victim_count": kpis.ransomware_victim_count,
+        "ransomware_active_groups_count": kpis.ransomware_active_groups_count,
+        "epss_high_priority_count": epss_high_priority_count,
         "pipeline_duration_seconds": pipeline_duration_seconds,
         "s3_json_key": s3_json_key,
         "s3_pdf_key": s3_pdf_key,

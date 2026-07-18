@@ -44,6 +44,7 @@
         <th>Vendor / Project</th>
         <th>Product</th>
         <th>Added</th>
+        <th>EPSS</th>
         <th>Ransomware</th>
         <th>Link</th>
       </tr>
@@ -55,6 +56,7 @@
         <td>{{ item.vendor_project if item.vendor_project else "N/A" }}</td>
         <td>{{ item.product if item.product else "N/A" }}</td>
         <td>{{ item.date_added | fmt_date_short }}</td>
+        <td class="mono">{{ "%.2f"|format(item.epss_score) if item.epss_score is not none else "N/A" }}</td>
         <td>
           {% if item.ransomware_known_use %}
             <span class="badge badge-error">Known</span>

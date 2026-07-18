@@ -37,6 +37,12 @@ class Settings:
     openphish_feed_url: str = "https://openphish.com/feed.txt"
     hibp_breaches_url: str = "https://haveibeenpwned.com/api/v3/breaches"  # gratuit, sans clé
     rapidapi_key: str | None = None  # optionnel (BreachDirectory cross-check) — étape sautée si absente
+    epss_base_url: str = "https://api.first.org/data/v1/epss"  # gratuit, sans clé
+    # ransomware.live : la doc publique (ransomware.live/apidocs) décrit une API REST
+    # api.ransomware.live/v2/* qui répond 404 en pratique (vérifié) — les vraies données sont ces
+    # 2 dumps JSON statiques complets sur un sous-domaine différent, CORS ouvert, sans clé.
+    ransomware_live_posts_url: str = "https://data.ransomware.live/posts.json"
+    ransomware_live_groups_url: str = "https://data.ransomware.live/groups.json"
 
     # Stockage
     storage_backend: str = "local"  # "local" | "s3"
