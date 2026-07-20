@@ -37,12 +37,14 @@ cloud.
 
 Rendu HTML→PDF sans dépendance navigateur (WeasyPrint + Jinja2), charts et carte du monde générés
 en SVG pur côté Python (aucun appel réseau au moment du rendu — un run ne doit jamais dépendre
-d'un service de tuiles tiers pour produire un chart). Sections : CVE critiques (avec score EPSS et
-scatter CVSS×EPSS), CISA KEV, **Ransomware Watch** (groupes actifs, sparkline 6 semaines,
-secteurs ciblés — jamais de nom de victime ni de lien de fuite), Mean-Time-to-KEV, infrastructure
-C2 active (carte + tableau enrichi multi-sources + techniques MITRE ATT&CK par IP), malware
-families (ThreatFox), URLs malveillantes, breaches de la semaine (HaveIBeenPwned), attribution des
-sources et traçabilité complète du run.
+d'un service de tuiles tiers pour produire un chart). Sections : Executive Summary (KPI +
+tendances) et **Executive Deep-Dive** (MTTK, EPSS haute-priorité, breaches, ransomware, ThreatFox
+— vue synthèse en un coup d'oeil), CVE critiques (avec score EPSS et scatter CVSS×EPSS), CISA KEV,
+**Ransomware Watch** (groupes actifs, sparkline 6 semaines, secteurs ciblés en bar chart avec
+icône/rang par secteur — jamais de nom de victime ni de lien de fuite), Mean-Time-to-KEV,
+infrastructure C2 active (carte + tableau enrichi multi-sources + techniques MITRE ATT&CK par IP),
+malware families (ThreatFox), URLs malveillantes, breaches de la semaine (HaveIBeenPwned),
+attribution des sources et traçabilité complète du run.
 
 ## Architecture
 
@@ -70,8 +72,9 @@ Traits pointillés = composants externes à ce repo, gérés par les repos `bees
 
 ## Aperçu du rapport
 
-![Rapport hebdomadaire — vue KPIs](docs/screenshots/report-kpis-overview.png)
-*Rapport hebdomadaire — vue KPIs (CVE critiques, source status, sommaire)*
+![Rapport hebdomadaire — Executive Summary & Deep-Dive](docs/screenshots/report-kpis-overview.png)
+*Rapport hebdomadaire — Executive Summary (KPI + tendances ▲/▼) et Executive Deep-Dive (MTTK,
+EPSS haute-priorité, breaches, ransomware, ThreatFox), source status*
 
 ![Rapport — infrastructure C2 active](docs/screenshots/report-c2-infrastructure.png)
 *Rapport — infrastructure C2 active (carte + tableau enrichi Spamhaus/GreyNoise/Shodan)*
@@ -81,7 +84,8 @@ Traits pointillés = composants externes à ce repo, gérés par les repos `bees
 
 ![Rapport — Ransomware Watch](docs/screenshots/report-ransomware-watch.png)
 *Rapport — Ransomware Watch (groupes actifs, sparkline 6 semaines par groupe, secteurs ciblés en
-lollipop chart — source ransomware.live, jamais de nom de victime ni de lien de fuite)*
+bar chart horizontal avec icône/rang par secteur — source ransomware.live, jamais de nom de
+victime ni de lien de fuite)*
 
 ## Quickstart
 

@@ -37,6 +37,7 @@ def _render_html(context: dict) -> str:
 _SECTION_TITLES = [
     "BeeSINT Threat Report",
     "Executive Summary",
+    "Executive Deep-Dive",
     "Source Status",
     "Contents",
     "New Critical CVEs",
@@ -61,15 +62,34 @@ def minimal_context() -> dict:
             "generated_at": "08 June 2026",
             "kpi_summary": {
                 "cve_critical_count": 2,
+                "cve_critical_trend_pct": 12.5,
                 "kev_new_count": 1,
+                "kev_new_trend_pct": None,
                 "c2_active_count": 1,
+                "c2_active_trend_pct": -5.0,
                 "malicious_url_count": 2,
+                "malicious_url_trend_pct": None,
             },
         },
         "executive_summary": "This week, the pipeline tracked 2 new critical CVEs. "
         "1 was added to CISA's Known Exploited Vulnerabilities catalog, including at least "
         "one tied to known ransomware activity. 1 command-and-control server(s) remain "
         "active and 2 malicious URLs were seen online in the monitored feeds.",
+        "deepdive": {
+            "mttk_days": 4.5,
+            "kev_urgent_count": 0,
+            "epss_high_priority_count": 1,
+            "breaches_new_count": 1,
+            "breaches_total_accounts_exposed": "1.2M",
+            "ransomware_active_groups_count": 0,
+            "ransomware_active_groups_trend_pct": None,
+            "ransomware_victim_count": 0,
+            "ransomware_victim_count_trend_pct": None,
+            "ransomware_sparkline": None,
+            "threatfox_families_count": 0,
+            "threatfox_families_trend_pct": None,
+            "threatfox_sparkline": None,
+        },
         "sources_status": [
             {"name": "kev", "status": "ok"},
             {"name": "nvd", "status": "ok"},
@@ -93,6 +113,7 @@ def minimal_context() -> dict:
             "severity_donut": None,
             "cvss_histogram": None,
             "cvss_epss_scatter": None,
+            "cvss_epss_subtitle": "1 critical CVEs have EPSS > 50% this week.",
         },
         "kev": {
             "new_count": 1,
@@ -117,6 +138,9 @@ def minimal_context() -> dict:
             "sample_size": 1,
             "gauge_svg": None,
             "remediation_window_days": 14.0,
+            "trend_sentence": "Critical vulnerabilities took an average of 4.5 days to go from public "
+            "disclosure to confirmed active exploitation this run — CISA's own remediation deadline for "
+            "this week's KEV additions currently averages 14.0 days.",
         },
         "c2": {
             "active_count": 1,
@@ -157,6 +181,7 @@ def minimal_context() -> dict:
         "malicious_urls": {
             "online_count": 2,
             "trend_pct": None,
+            "pool_total": 2,
             "items": [
                 {
                     "url": "http://malicious.example.com/payload",
@@ -195,12 +220,20 @@ def minimal_context() -> dict:
             "impact_chart": None,
         },
         "threatfox": {"enabled": False, "families_count": 0, "families_trend_pct": None, "sparkline": None},
-        "ransomware_watch": {"enabled": False, "kpis": {}, "groups": [], "sector_breakdown": [], "sector_chart": None},
+        "ransomware_watch": {
+            "enabled": False,
+            "kpis": {},
+            "groups": [],
+            "sector_breakdown": [],
+            "sector_chart": None,
+            "sector_sentence": None,
+        },
         "geo": {
             "top_countries": [
                 {"country_name": "United States", "country_code": "US", "count": 3, "pct_of_total": 60.0},
                 {"country_name": "Germany", "country_code": "DE", "count": 2, "pct_of_total": 40.0},
-            ]
+            ],
+            "top_countries_chart": None,
         },
         "history_chart": {"svg": None, "legend": []},
         "vendors": {"top_items": [{"vendor_name": "acme", "cve_count": 2}]},
@@ -367,12 +400,14 @@ def test_render_pdf_lineage_sources_grouped_by_category(tmp_path):
     assert "FEODOTRACKER" in full_text_upper
 
 
-def test_mttk_template_uses_kpi_column_not_wrapper_card():
-    # Point 7 : les 3 KPI MTTK ne doivent plus être encadrés par une card .chart-card superflue —
-    # ils vivent directement dans .mttk-kpi-column (colonne verticale à droite de la jauge).
+def test_mttk_template_merges_kpi_tiles_into_single_grid_card():
+    # 1n : les 4 tuiles (average/median/sample/remediation) vivent désormais dans UNE seule card
+    # (.chart-card contenant un .kpi-grid, 2 tuiles par ligne) à côté de la jauge — plus de 3e
+    # colonne séparée (.mttk-kpi-column/.mttk-remediation-card, gap incohérent entre colonnes).
     template_src = (_TEMPLATE_DIR / "partials" / "_mttk.html.j2").read_text(encoding="utf-8")
-    assert "mttk-kpi-column" in template_src
-    assert 'class="kpi-grid"' not in template_src
+    assert "mttk-kpi-column" not in template_src
+    assert "mttk-remediation-card" not in template_src
+    assert 'class="kpi-grid"' in template_src
 
 
 def test_lineage_template_has_no_card_look():
@@ -572,10 +607,16 @@ def test_render_pdf_toc_shows_real_page_numbers(tmp_path):
     render_pdf(minimal_context(), output_path)
 
     reader = PdfReader(str(output_path))
-    # Contents is page 2 (page 1 = cover), sections start after it — every TOC page number must be
-    # a real page reference (>= 2), never "0" or missing (would indicate target-counter silently
-    # failed to resolve on this WeasyPrint version).
-    contents_text = reader.pages[1].extract_text() or ""
+    # La page "Contents" n'a plus un index fixe (1f a inséré une page Executive Deep-Dive avant
+    # elle, la décalant de la page 2 à la page 3 sur ce fixture minimal) — chercher la page par
+    # son propre titre plutôt que de figer un index, plus robuste à un futur ajout de section
+    # avant la TOC. Chaque page number référencé doit rester une vraie référence de page (jamais
+    # "0"/absent, ce qui indiquerait un échec silencieux de target-counter sur cette version de
+    # WeasyPrint).
+    contents_text = next(
+        (page.extract_text() or "" for page in reader.pages if "Contents" in (page.extract_text() or "")), ""
+    )
+    assert contents_text, "no page found containing the Contents/TOC section"
     assert "New critical CVEs" in contents_text
 
 
@@ -595,16 +636,16 @@ def test_mttk_template_has_sec_id_anchor():
     assert 'id="sec-mttk"' in template_src
 
 
-def test_mttk_template_renders_remediation_card_unconditionally():
-    # La nouvelle carte doit apparaître que sample_size soit > 0 ou == 0 (contrairement au
-    # gauge/kpi-column, restés conditionnels) — c'est tout l'intérêt de cette métrique "toujours
-    # peuplée" à côté du gauge honnête.
+def test_mttk_template_renders_remediation_tile_unconditionally():
+    # La tuile remediation_window_days doit apparaître que sample_size soit > 0 ou == 0
+    # (contrairement aux 3 tuiles average/median/sample et à la jauge, restées conditionnelles) —
+    # c'est tout l'intérêt de cette métrique "toujours peuplée" à côté du gauge honnête. 1n l'a
+    # déplacée dans le même .kpi-grid que les 3 autres, mais hors du bloc conditionnel
+    # `{% if mttk.sample_size > 0 %}`.
     template_src = (_TEMPLATE_DIR / "partials" / "_mttk.html.j2").read_text(encoding="utf-8")
-    assert "mttk-remediation-card" in template_src
-    # La carte de remédiation ne doit pas être à l'intérieur du bloc conditionnel sample_size > 0
-    # (sinon elle disparaîtrait avec le gauge sur un cold start) — la marque de fin de bloc
-    # conditionnel doit précéder la carte de remédiation dans le texte source.
-    assert template_src.index("{% endif %}") < template_src.index("mttk-remediation-card")
+    assert "CISA remediation window" in template_src
+    conditional_block = template_src.split("{% if mttk.sample_size > 0 %}", 1)[1].split("{% endif %}", 1)[0]
+    assert "remediation_window_days" not in conditional_block
 
 
 def test_render_pdf_mttk_remediation_card_shows_even_with_zero_sample_size(tmp_path):
@@ -626,12 +667,14 @@ def test_render_pdf_mttk_remediation_card_shows_even_with_zero_sample_size(tmp_p
     assert "CISA REMEDIATION WINDOW" in full_text_upper
 
 
-def test_report_css_mttk_kpi_column_has_margin_for_third_card():
+def test_report_css_mttk_kpi_grid_card_has_no_orphaned_classes():
+    # 1n : le layout MTTK 4-tuiles réutilise .chart-card + .kpi-grid tel quel (déjà couverts par
+    # test_report_css_kpi_grid_compensates_last_card_margin/test_report_css_chart_card_full_
+    # matches_chart_card_right_margin pour la compensation de marge) — plus de classe CSS dédiée
+    # MTTK à tester séparément, juste une regression guard sur leur suppression complète.
     css = _REPORT_CSS_PATH.read_text(encoding="utf-8")
-    kpi_column_block = css.split(".mttk-kpi-column {", 1)[1].split("}", 1)[0]
-    assert "flex: 1 1 160px;" in kpi_column_block
-    assert "margin: 0 16px 16px 0;" in kpi_column_block
-    assert ".mttk-remediation-card {" in css
+    assert ".mttk-kpi-column" not in css
+    assert ".mttk-remediation-card" not in css
 
 
 # ---- Phase P5 (nouvelle section "Breaches This Week") -----------------------------------------

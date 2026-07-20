@@ -1,0 +1,65 @@
+<section class="section" id="sec-executive-deepdive">
+  <h2 class="section-title">Executive Deep-Dive</h2>
+  <p class="section-desc">A closer look at this week's most decision-relevant figures — remediation speed, urgent exposure, and the two threats gaining the most ground.</p>
+
+  <div class="kpi-grid" style="margin-top: 16px;">
+    <div class="kpi-card">
+      <div class="value">{{ deepdive.mttk_days if deepdive.mttk_days is not none else "N/A" }}</div>
+      <div class="label">Mean-Time-to-KEV (days)</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ deepdive.kev_urgent_count }}</div>
+      <div class="label">KEV urgent (&le; J+7)</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ deepdive.epss_high_priority_count }}</div>
+      <div class="label">EPSS high-priority CVEs</div>
+    </div>
+    <div class="kpi-card">
+      <div class="value">{{ deepdive.breaches_new_count }}</div>
+      <div class="label">New breaches ({{ deepdive.breaches_total_accounts_exposed }} accounts)</div>
+    </div>
+  </div>
+
+  <div class="chart-row" style="margin-top: 16px;">
+    <div class="chart-card">
+      <p class="chart-card-title">Ransomware — active groups &amp; victims</p>
+      <div class="kpi-grid" style="margin: 0;">
+        <div class="kpi-card" style="flex: 1 1 auto;">
+          <div class="value">{{ deepdive.ransomware_active_groups_count }}
+            {% if deepdive.ransomware_active_groups_trend_pct is not none %}
+              {% if deepdive.ransomware_active_groups_trend_pct >= 0 %}<span class="trend-up kpi-trend">▲ +{{ deepdive.ransomware_active_groups_trend_pct }}%</span>
+              {% else %}<span class="trend-down kpi-trend">▼ {{ deepdive.ransomware_active_groups_trend_pct }}%</span>{% endif %}
+            {% endif %}
+          </div>
+          <div class="label">Active groups</div>
+        </div>
+        <div class="kpi-card" style="flex: 1 1 auto;">
+          <div class="value">{{ deepdive.ransomware_victim_count }}
+            {% if deepdive.ransomware_victim_count_trend_pct is not none %}
+              {% if deepdive.ransomware_victim_count_trend_pct >= 0 %}<span class="trend-up kpi-trend">▲ +{{ deepdive.ransomware_victim_count_trend_pct }}%</span>
+              {% else %}<span class="trend-down kpi-trend">▼ {{ deepdive.ransomware_victim_count_trend_pct }}%</span>{% endif %}
+            {% endif %}
+          </div>
+          <div class="label">Victims</div>
+        </div>
+      </div>
+      {% if deepdive.ransomware_sparkline %}<div class="kpi-spark">{{ deepdive.ransomware_sparkline | safe }}</div>{% endif %}
+    </div>
+    <div class="chart-card">
+      <p class="chart-card-title">ThreatFox — active malware families</p>
+      <div class="kpi-grid" style="margin: 0;">
+        <div class="kpi-card" style="flex: 1 1 auto;">
+          <div class="value">{{ deepdive.threatfox_families_count }}
+            {% if deepdive.threatfox_families_trend_pct is not none %}
+              {% if deepdive.threatfox_families_trend_pct >= 0 %}<span class="trend-up kpi-trend">▲ +{{ deepdive.threatfox_families_trend_pct }}%</span>
+              {% else %}<span class="trend-down kpi-trend">▼ {{ deepdive.threatfox_families_trend_pct }}%</span>{% endif %}
+            {% endif %}
+          </div>
+          <div class="label">Malware families</div>
+        </div>
+      </div>
+      {% if deepdive.threatfox_sparkline %}<div class="kpi-spark">{{ deepdive.threatfox_sparkline | safe }}</div>{% endif %}
+    </div>
+  </div>
+</section>

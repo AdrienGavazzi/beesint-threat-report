@@ -2,7 +2,7 @@
 {% if ransomware_watch.enabled %}
 <section class="section" id="sec-ransomware-watch">
   <h2 class="section-title">Ransomware Watch</h2>
-  <p class="section-desc">Groups that posted a new victim to their leak site this week — sourced from ransomware.live's public leak-site tracker. Never includes victim names or leak-site links.</p>
+  <p class="section-desc">Groups that posted a new victim to their leak site this week — sourced from ransomware.live's public leak-site tracker. Victim names and leak-site links are deliberately withheld: naming a victim here would only amplify the extortion attempt, and this report only needs to convey scale and trend, not identify who was hit.</p>
   <div class="kpi-grid">
     <div class="kpi-card">
       <div class="value">{{ ransomware_watch.kpis.active_groups }}</div>
@@ -69,6 +69,9 @@
       <div class="chip-list">
         {% for item in ransomware_watch.sector_breakdown %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.sector }}<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
       </div>
+      {% endif %}
+      {% if ransomware_watch.sector_sentence %}
+      <p class="section-desc" style="margin-top: 6px; margin-bottom: 0;">{{ ransomware_watch.sector_sentence }}</p>
       {% endif %}
     </div>
   </div>

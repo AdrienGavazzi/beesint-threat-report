@@ -9,10 +9,10 @@ on:
         description: "Ignorer le cache local et re-fetch toutes les sources"
         type: boolean
         default: false
-      skip_email:
-        description: "Ne pas notifier les abonnés email pour ce run"
+      notify_subscribers:
+        description: "Notifier les abonnés email pour ce run"
         type: boolean
-        default: true
+        default: false
 
 concurrency:
   group: cron-etl
@@ -57,4 +57,4 @@ jobs:
           pip install -e .
 
       - name: Run orchestrate
-        run: python -m beesint_threat_report.orchestrate ${{ inputs.force_refresh && '--force-refresh' || '' }} ${{ inputs.skip_email && '--skip-email' || '' }}
+        run: python -m beesint_threat_report.orchestrate ${{ inputs.force_refresh && '--force-refresh' || '' }} ${{ inputs.notify_subscribers && '--notify-subscribers' || '' }}

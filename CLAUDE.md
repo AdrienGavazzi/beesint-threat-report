@@ -80,3 +80,5 @@ NVD (CVE), CISA KEV, abuse.ch FeodoTracker (C2 IPs)/URLhaus (malicious URLs)/Thr
 ## Testing
 
 `pytest` — `tests/test_load_pdf_renderer.py` asserts on rendered CSS/HTML behavior directly (skipped if Pango/GTK isn't available, e.g. plain Windows without the WeasyPrint system deps). Extend this file rather than adding a parallel one when testing new template/CSS behavior.
+
+**`OSError: cannot load library 'gobject-2.0-0'` on plain Windows :** not a code bug — WeasyPrint needs the GTK3 runtime (Pango/GObject/cairo) that Windows doesn't ship. CI (`.github/workflows/cron-etl.yml`, `runs-on: ubuntu-latest`) installs its own deps via `apt-get` and is unaffected. To render PDFs locally on Windows, install the [GTK3 runtime for Windows](https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer) (`GTK3-Runtime-Win64` installer) and restart the shell so the DLLs are on `PATH`. Until then, `tests/test_load_pdf_renderer.py` self-skips (see above) rather than failing — this is expected on a fresh Windows machine, not a regression.

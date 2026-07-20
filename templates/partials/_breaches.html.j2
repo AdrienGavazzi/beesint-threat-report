@@ -15,7 +15,8 @@
   </div>
 
   {% if breaches.spotlight %}
-  <div class="chart-card chart-card--full" style="margin-top: 16px;">
+  <div class="chart-row" style="margin-top: 16px;">
+  <div class="chart-card chart-card--full">
     <div class="spotlight-header">
       <p class="chart-card-title">Spotlight — most impactful breach this week</p>
       {% if breaches.spotlight.is_verified or breaches.spotlight.is_sensitive %}
@@ -43,6 +44,7 @@
     {% if breaches.spotlight.hibp_name %}
     <p style="margin-top: 8px; margin-bottom: 0;">{{ source_link("https://haveibeenpwned.com/PwnedWebsites#" ~ breaches.spotlight.hibp_name, "View on HaveIBeenPwned") }}</p>
     {% endif %}
+  </div>
   </div>
   {% endif %}
 

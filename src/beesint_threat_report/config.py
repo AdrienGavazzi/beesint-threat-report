@@ -170,4 +170,15 @@ def resolve_storage_options(settings: Settings) -> dict | None:
         "secret": settings.s3_secret_key,
         "endpoint_url": settings.s3_endpoint_url,
         "client_kwargs": client_kwargs,
+        # botocore >=1.36 (confirmé installé : 1.41.5) défaut à un transfer-encoding
+        # chunked + trailing checksum sur PutObject qu'Oracle Cloud Object Storage (endpoint
+        # S3-compatible) rejette ("AWS chunked encoding is not supported" / SignatureDoesNotMatch,
+        # vérifié empiriquement contre un vrai bucket Oracle). "when_required" retombe sur le
+        # comportement pré-1.36 (pas de checksum trailer, pas de chunked encoding forcé), seule
+        # option compatible avec ce endpoint. config_kwargs est le paramètre s3fs qui les passe
+        # tel quel à botocore.config.Config(**config_kwargs).
+        "config_kwargs": {
+            "request_checksum_calculation": "when_required",
+            "response_checksum_validation": "when_required",
+        },
     }

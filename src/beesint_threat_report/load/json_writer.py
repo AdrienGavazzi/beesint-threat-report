@@ -22,6 +22,7 @@ def build_report_payload(
     sources_status: dict[str, str],
     c2_items: list[dict],
     malicious_url_items: list[dict],
+    malicious_url_pool_total: int = 0,
     is_cold_start: bool = False,
     ransomware_watch: dict | None = None,
 ) -> dict:
@@ -55,6 +56,7 @@ def build_report_payload(
         "cves": top_cves,
         "malicious_ips": top_ips,
         "malicious_urls": malicious_url_items,
+        "malicious_url_pool_total": malicious_url_pool_total,
         # groups[].sparkline_weekly_counts est une liste de nombres bruts, jamais un SVG
         # pré-rendu — PDF et frontend génèrent chacun leur propre visuel depuis ces mêmes
         # chiffres (cf. décision produit "les deux rendus ne partagent jamais une image").

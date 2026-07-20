@@ -16,6 +16,31 @@ from beesint_threat_report.transform.kpis import ReportKpis
 _TOP_N_COUNTRIES = 10
 _URL_TRUNCATE_LEN = 80
 
+# Icônes par secteur (Ransomware Watch — "targeted sectors this week") — mapping partagé avec le
+# frontend (beesint-frontend, TS mirror de ce dict) pour rester visuellement cohérent PDF<->web.
+# Emoji testés au rendu WeasyPrint réel (Plus Jakarta Sans/JetBrains Mono n'embarquent pas de
+# glyphes emoji couleur, mais WeasyPrint retombe sur les emoji monochromes du système de fonts
+# fallback disponibles sur le runner GitHub Actions — rendu confirmé non-vide). À étendre au fil
+# des nouveaux libellés de secteur observés dans les données ransomware.live (pas de liste
+# exhaustive garantie côté source).
+SECTOR_ICONS: dict[str, str] = {
+    "Finance": "\U0001f4b0",
+    "Healthcare": "\U0001f3e5",
+    "Government": "\U0001f3db️",
+    "Education": "\U0001f393",
+    "Energy": "⚡",
+    "Retail": "\U0001f6d2",
+    "Manufacturing": "\U0001f3ed",
+    "Tech": "\U0001f4bb",
+    "Telecom": "\U0001f4e1",
+    "Transportation": "\U0001f69a",
+    "Legal": "⚖️",
+    "Media": "\U0001f4f0",
+    "Hospitality": "\U0001f3e8",
+    "Real Estate": "\U0001f3e2",
+    "unknown": "❓",
+}
+
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 
@@ -45,13 +70,13 @@ _SOURCES = [
     {
         "name": "NVD (National Vulnerability Database)",
         "url": "https://nvd.nist.gov/",
-        "note": "Domaine public — NIST.",
+        "note": "Public domain — NIST.",
         "category": "CVE / KEV",
     },
     {
         "name": "CISA Known Exploited Vulnerabilities (KEV)",
         "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
-        "note": "Domaine public — CISA.",
+        "note": "Public domain — CISA.",
         "category": "CVE / KEV",
     },
     {
@@ -75,31 +100,31 @@ _SOURCES = [
     {
         "name": "ip-api.com",
         "url": "https://ip-api.com/",
-        "note": "Géolocalisation IP, usage non-commercial.",
+        "note": "IP geolocation, non-commercial use.",
         "category": "Geolocation",
     },
     {
         "name": "Shodan InternetDB",
         "url": "https://internetdb.shodan.io/",
-        "note": "Domaine public — gratuit, sans clé API.",
+        "note": "Public domain — free, no API key.",
         "category": "C2 Infrastructure",
     },
     {
         "name": "Spamhaus DROP/EDROP",
         "url": "https://www.spamhaus.org/drop/",
-        "note": "Listes CIDR publiques — usage non-commercial.",
+        "note": "Public CIDR lists — non-commercial use.",
         "category": "C2 Infrastructure",
     },
     {
         "name": "GreyNoise Community API",
         "url": "https://viz.greynoise.io/",
-        "note": "Tier gratuit, clé API requise — classification IP.",
+        "note": "Free tier, API key required — IP classification.",
         "category": "C2 Infrastructure",
     },
     {
         "name": "OpenPhish",
         "url": "https://openphish.com/",
-        "note": "Flux public communautaire — gratuit, sans clé API.",
+        "note": "Public community feed — free, no API key.",
         "category": "Malicious URLs",
     },
 ]
@@ -564,12 +589,22 @@ def epss_band_color(epss_score: float | None) -> str:
     return _EPSS_LOW_COLOR
 
 
-def _build_cvss_epss_scatter_svg(critical_items: list[dict], width: int = 280, height: int = 140) -> str | None:
+def _build_cvss_epss_scatter_svg(
+    critical_items: list[dict],
+    trend_series: list[float] | None = None,
+    width: int = 280,
+    height: int = 140,
+    sparkline_w: int = 70,
+) -> str | None:
     """CVSS (sévérité) x EPSS (probabilité d'exploitation réelle) — un CVE en haut à droite est la
     vraie priorité de la semaine, un CVSS 9.8 rarement exploité (bas) compte moins qu'un 7.2 très
     probablement ciblé (haut). Uniquement sur des scores réels des deux côtés — jamais de point
     fabriqué. Sous _EPSS_SCATTER_MIN_ITEMS, retourne None (le template retombe sur un badge par
-    ligne, même discipline que _build_cvss_histogram_svg)."""
+    ligne, même discipline que _build_cvss_histogram_svg). Pas de width/height fixes sur la racine
+    <svg> (seulement viewBox) — .chart-card svg.epss-scatter pilote la largeur réelle via CSS,
+    même fix que .map-frame svg (cf. CLAUDE.md "WeasyPrint 62.3"). `sparkline_w` réserve une
+    colonne à droite du scatter pour la mini-tendance 4-runs (trend_series), séparée par une
+    ligne verticale — élargit le viewBox plutôt que de superposer sur le plot."""
     points = [
         (item["cvss_score"], item["epss_score"], item["cve_id"])
         for item in critical_items
@@ -578,7 +613,9 @@ def _build_cvss_epss_scatter_svg(critical_items: list[dict], width: int = 280, h
     if len(points) < _EPSS_SCATTER_MIN_ITEMS:
         return None
 
-    left_margin, bottom_margin, top_margin, right_margin = 28, 20, 10, 10
+    has_sparkline = trend_series is not None and len(trend_series) >= 2
+    scatter_w = width + (sparkline_w if has_sparkline else 0)
+    left_margin, bottom_margin, top_margin, right_margin = 30, 20, 10, 10
     plot_w = width - left_margin - right_margin
     plot_h = height - top_margin - bottom_margin
 
@@ -596,6 +633,13 @@ def _build_cvss_epss_scatter_svg(critical_items: list[dict], width: int = 280, h
         f'font-family="JetBrains Mono, monospace" font-size="7">CVSS 0</text>'
         f'<text x="{width - right_margin}" y="{height - 4}" text-anchor="end" fill="{_TEXT_MUTED_COLOR}" '
         f'font-family="JetBrains Mono, monospace" font-size="7">10</text>'
+        # Label Y (EPSS) manquant jusqu'ici — seul l'axe X était nommé. Vertical, ancré en haut de
+        # l'axe, rotation -90° autour de son propre point d'ancrage.
+        f'<text x="{left_margin - 6}" y="{top_margin + 4}" fill="{_TEXT_MUTED_COLOR}" '
+        f'font-family="JetBrains Mono, monospace" font-size="7" text-anchor="end" '
+        f'transform="rotate(-90 {left_margin - 6} {top_margin + 4})">EPSS 1.0</text>'
+        f'<text x="{left_margin - 6}" y="{height - bottom_margin}" fill="{_TEXT_MUTED_COLOR}" '
+        f'font-family="JetBrains Mono, monospace" font-size="7" text-anchor="end">0</text>'
     )
     dots = []
     for cvss, epss_score, _cve_id in points:
@@ -603,11 +647,33 @@ def _build_cvss_epss_scatter_svg(critical_items: list[dict], width: int = 280, h
         color = epss_band_color(epss_score)
         dots.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="{color}" fill-opacity="0.85"/>')
 
+    sparkline = ""
+    if has_sparkline:
+        spark_x0 = width + 12
+        spark_x1 = scatter_w - 6
+        spark_lo, spark_hi = min(trend_series), max(trend_series)
+        spark_span = (spark_hi - spark_lo) or 1
+        n = len(trend_series)
+        spark_pts = [
+            (
+                spark_x0 + (i / (n - 1)) * (spark_x1 - spark_x0),
+                top_margin + (1 - (v - spark_lo) / spark_span) * plot_h,
+            )
+            for i, v in enumerate(trend_series)
+        ]
+        path = " ".join(f"{'M' if i == 0 else 'L'}{x:.1f},{y:.1f}" for i, (x, y) in enumerate(spark_pts))
+        last_x, last_y = spark_pts[-1]
+        sparkline = (
+            f'<line x1="{width}" y1="{top_margin}" x2="{width}" y2="{height - bottom_margin}" '
+            f'stroke="{_MAP_BORDER_COLOR}" stroke-width="1"/>'
+            f'<text x="{spark_x0}" y="{top_margin - 2}" fill="{_TEXT_MUTED_COLOR}" '
+            f'font-family="JetBrains Mono, monospace" font-size="6">4-run trend</text>'
+            f'<path d="{path}" fill="none" stroke="{_MAP_BORDER_COLOR}" stroke-width="1.2"/>'
+            f'<circle cx="{last_x:.1f}" cy="{last_y:.1f}" r="2.5" fill="{_TEXT_MUTED_COLOR}"/>'
+        )
+
     return (
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="epss-scatter">'
-        + axis
-        + "".join(dots)
-        + "</svg>"
+        f'<svg viewBox="0 0 {scatter_w} {height}" class="epss-scatter">' + axis + "".join(dots) + sparkline + "</svg>"
     )
 
 
@@ -744,50 +810,58 @@ def _build_mini_bar_chart_svg(
     )
 
 
-_LOLLIPOP_MIN_ITEMS = 3  # même discipline que _PORT_BREAKDOWN_MIN_IPS : sous 3 secteurs, un chip-
+_SECTOR_CHART_MIN_ITEMS = 3  # même discipline que _PORT_BREAKDOWN_MIN_IPS : sous 3 secteurs, un chip-
 # list dit déjà tout ce qu'un graphe dirait, cf. _HISTOGRAM_MIN_ITEMS.
 
 
-def _build_lollipop_chart_svg(
-    rows: list[dict], label_key: str, count_key: str = "count", width: int = 300, row_height: int = 22
+def _build_sector_bar_chart_svg(
+    rows: list[dict], label_key: str, count_key: str = "count", width: int = 320, row_height: int = 22
 ) -> str | None:
-    """Lollipop horizontal (ligne fine + point plein) — aucun précédent dans ce repo, choisi pour
-    Ransomware Watch pour se distinguer visuellement de _build_stacked_bar_svg (C2) et
-    _build_mini_bar_chart_svg (breaches/URLs) tout en gardant la même discipline de gating et la
-    même palette par rang (row["color"], _attach_rank_colors) que les autres breakdowns."""
-    if len(rows) < _LOLLIPOP_MIN_ITEMS:
+    """Bar chart horizontal pour "Targeted sectors this week" (Ransomware Watch) — remplace
+    l'ancien lollipop chart (choix utilisateur confirmé : mismatch relevé entre la description
+    "gauge" et le code réel, l'utilisateur a tranché pour un bar chart classique plutôt que de
+    garder le lollipop ou d'ajouter un gauge). Rang + icône secteur (SECTOR_ICONS) préfixés en
+    colonne dédiée à gauche du label plutôt que concaténés dans le texte — évite toute troncature
+    du glyphe emoji par la coupe `[:N]` du label."""
+    if len(rows) < _SECTOR_CHART_MIN_ITEMS:
         return None
 
     max_count = max(row[count_key] for row in rows) or 1
-    label_w = 110
-    plot_w = width - label_w - 34
+    rank_w = 14
+    icon_w = 16
+    label_w = 96
+    plot_w = width - rank_w - icon_w - label_w - 34
     height = row_height * len(rows) + 8
 
-    marks = []
+    bars = []
     for i, row in enumerate(rows):
-        y = 8 + i * row_height + row_height / 2
-        val_w = (row[count_key] / max_count) * plot_w
+        y = 8 + i * row_height
+        bar_h = row_height * 0.55
+        bar_y = y + (row_height - bar_h) / 2
+        bar_w = max((row[count_key] / max_count) * plot_w, 2)
         color = row.get("color") or _HISTOGRAM_COLOR
-        label = str(row[label_key])[:16]
-        marks.append(
-            f'<text x="0" y="{y + 3:.1f}" fill="{_TEXT_MUTED_COLOR}" '
+        icon = SECTOR_ICONS.get(str(row[label_key]), SECTOR_ICONS["unknown"])
+        label = str(row[label_key])[:14]
+        text_y = y + row_height / 2 + 3
+        bars.append(
+            f'<text x="0" y="{text_y:.1f}" fill="{_TEXT_MUTED_COLOR}" '
+            f'font-family="JetBrains Mono, monospace" font-size="8.5">{i + 1}</text>'
+        )
+        bars.append(f'<text x="{rank_w}" y="{text_y:.1f}" font-size="9.5">{icon}</text>')
+        bars.append(
+            f'<text x="{rank_w + icon_w}" y="{text_y:.1f}" fill="{_TEXT_MUTED_COLOR}" '
             f'font-family="JetBrains Mono, monospace" font-size="8.5">{label}</text>'
         )
-        marks.append(
-            f'<line x1="{label_w}" y1="{y:.1f}" x2="{label_w + plot_w}" y2="{y:.1f}" '
-            f'stroke="{_MAP_BORDER_COLOR}" stroke-width="1"/>'
+        bar_x = rank_w + icon_w + label_w
+        bars.append(
+            f'<rect x="{bar_x}" y="{bar_y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" rx="2" fill="{color}"/>'
         )
-        marks.append(
-            f'<line x1="{label_w}" y1="{y:.1f}" x2="{label_w + val_w:.1f}" y2="{y:.1f}" '
-            f'stroke="{color}" stroke-width="2.5" stroke-linecap="round"/>'
-        )
-        marks.append(f'<circle cx="{label_w + val_w:.1f}" cy="{y:.1f}" r="4" fill="{color}"/>')
-        marks.append(
-            f'<text x="{label_w + plot_w + 8:.1f}" y="{y + 3:.1f}" fill="{_TEXT_BODY_COLOR}" '
+        bars.append(
+            f'<text x="{bar_x + bar_w + 6:.1f}" y="{text_y:.1f}" fill="{_TEXT_BODY_COLOR}" '
             f'font-family="JetBrains Mono, monospace" font-size="8.5">{row[count_key]}</text>'
         )
 
-    return f'<svg viewBox="0 0 {width} {height}" class="lollipop-chart">' + "".join(marks) + "</svg>"
+    return f'<svg viewBox="0 0 {width} {height}" class="sector-bar-chart">' + "".join(bars) + "</svg>"
 
 
 def _ransomware_watch_context(ransomware_watch: dict | None, sources_status: dict[str, str]) -> dict:
@@ -798,19 +872,40 @@ def _ransomware_watch_context(ransomware_watch: dict | None, sources_status: dic
     orchestrate.py/json_writer.py, qui gardent les nombres bruts pour le frontend, cf. CDC)."""
     enabled = sources_status.get("ransomware_live") == "ok"
     if not enabled or not ransomware_watch:
-        return {"enabled": False, "kpis": {}, "groups": [], "sector_breakdown": [], "sector_chart": None}
+        return {
+            "enabled": False,
+            "kpis": {},
+            "groups": [],
+            "sector_breakdown": [],
+            "sector_chart": None,
+            "sector_sentence": None,
+        }
 
     groups = [
         {**group, "sparkline": _build_sparkline_svg(group.get("sparkline_weekly_counts") or [])}
         for group in ransomware_watch.get("groups", [])
     ]
     sector_rows = _attach_rank_colors(ransomware_watch.get("sector_breakdown", []))
+    # Pas de badge de tendance sur le secteur #1 (creative improvement demandée, cf. plan) : la
+    # seule donnée historique dispo à ce niveau est runs/index.json (compteurs légers globaux,
+    # jamais de détail par secteur — cf. commentaire "index léger vs rapport complet" plus haut).
+    # Calculer une vraie tendance par secteur demanderait de relire le report-<run_id>.json complet
+    # du run précédent depuis S3, hors périmètre de ce fix ponctuel — skip documenté plutôt que
+    # d'inventer un chiffre.
+    sector_sentence = None
+    if sector_rows:
+        top = sector_rows[0]
+        sector_sentence = (
+            f"{top['sector']} was the most-targeted sector this week, with {top['count']} of "
+            f"{sum(r['count'] for r in sector_rows)} tracked victims ({top.get('pct_of_total', 0)}%)."
+        )
     return {
         "enabled": True,
         "kpis": ransomware_watch.get("kpis", {}),
         "groups": groups,
         "sector_breakdown": sector_rows,
-        "sector_chart": _build_lollipop_chart_svg(sector_rows, "sector"),
+        "sector_chart": _build_sector_bar_chart_svg(sector_rows, "sector"),
+        "sector_sentence": sector_sentence,
     }
 
 
@@ -1217,6 +1312,7 @@ def build_pdf_context(
     feodo_df: pl.DataFrame,
     c2_items: list[dict],
     malicious_url_items: list[dict],
+    malicious_url_pool_total: int = 0,
     breach_items: list[dict],
     pipeline_duration_seconds: float,
     sources_status: dict[str, str],
@@ -1258,6 +1354,16 @@ def build_pdf_context(
     _breach_severity_rows = _breach_severity_breakdown(breach_items)
     _breach_impact_rows = [{"name": item["name"], "count": item["pwn_count"]} for item in breach_items]
 
+    # Réutilisé par le tile Deep-Dive (epss_high_priority_count) ET le sous-titre/mini-trend du
+    # scatter CVSS x EPSS ci-dessous — un seul calcul, même définition que orchestrate.py
+    # (sum epss_score > 0.5 sur les CVE critiques du run).
+    _epss_high_priority_count = sum(1 for c in critical_items if (c.get("epss_score") or 0) > 0.5)
+    _prev_epss_high_priority_count = history_entries[-1].get("epss_high_priority_count") if history_entries else None
+    _epss_subtitle = f"{_epss_high_priority_count} critical CVEs have EPSS > 50% this week"
+    if _prev_epss_high_priority_count is not None:
+        _epss_subtitle += f", vs {_prev_epss_high_priority_count} last week"
+    _epss_subtitle += ". Top-right = patch first (severe AND likely exploited)."
+
     return {
         "report": {
             "run_id": run_id,
@@ -1266,12 +1372,35 @@ def build_pdf_context(
             "generated_at": generated_at_str,
             "kpi_summary": {
                 "cve_critical_count": kpis.cve_critical_count,
+                "cve_critical_trend_pct": kpis.cve_critical_trend_pct,
                 "kev_new_count": kpis.kev_new_count,
+                "kev_new_trend_pct": kpis.kev_new_trend_pct,
                 "c2_active_count": kpis.c2_active_count,
+                "c2_active_trend_pct": kpis.c2_active_trend_pct,
                 "malicious_url_count": kpis.malicious_url_count,
+                "malicious_url_trend_pct": kpis.malicious_url_trend_pct,
             },
         },
         "executive_summary": _build_executive_summary(kpis, is_cold_start, sources_status, c2_cross_confirmed),
+        "deepdive": {
+            "mttk_days": kpis.mean_time_to_kev_days,
+            "kev_urgent_count": kpis.kev_urgent_count,
+            "epss_high_priority_count": _epss_high_priority_count,
+            "breaches_new_count": len(breach_items),
+            "breaches_total_accounts_exposed": _format_breach_count(sum(item["pwn_count"] for item in breach_items)),
+            "ransomware_active_groups_count": kpis.ransomware_active_groups_count,
+            "ransomware_active_groups_trend_pct": kpis.ransomware_active_groups_trend_pct,
+            "ransomware_victim_count": kpis.ransomware_victim_count,
+            "ransomware_victim_count_trend_pct": kpis.ransomware_victim_count_trend_pct,
+            "ransomware_sparkline": _build_sparkline_svg(
+                _series("ransomware_victim_count", kpis.ransomware_victim_count)
+            ),
+            "threatfox_families_count": kpis.threatfox_malware_families_count,
+            "threatfox_families_trend_pct": kpis.threatfox_malware_families_trend_pct,
+            "threatfox_sparkline": _build_sparkline_svg(
+                _series("threatfox_malware_families_count", kpis.threatfox_malware_families_count)
+            ),
+        },
         "sources_status": [
             {"name": name, "status": _sanitize_status(status)} for name, status in sorted(sources_status.items())
         ],
@@ -1283,7 +1412,10 @@ def build_pdf_context(
             "sparkline": _build_sparkline_svg(_series("cve_critical_count", kpis.cve_critical_count)),
             "severity_donut": _build_severity_donut_svg(kpis.cve_critical_count, kpis.cve_high_count),
             "cvss_histogram": _build_cvss_histogram_svg(critical_items),
-            "cvss_epss_scatter": _build_cvss_epss_scatter_svg(critical_items),
+            "cvss_epss_scatter": _build_cvss_epss_scatter_svg(
+                critical_items, trend_series=_series("epss_high_priority_count", _epss_high_priority_count)[-4:]
+            ),
+            "cvss_epss_subtitle": _epss_subtitle,
         },
         "kev": {
             "new_count": kpis.kev_new_count,
@@ -1304,6 +1436,19 @@ def build_pdf_context(
             # NVD/KEV de la même semaine comme le gauge ci-dessus) — cf. transform/mttk.py
             # compute_mean_remediation_window_days, CDC Phase P3.
             "remediation_window_days": kev_remediation_window_days,
+            # Pas de tendance semaine-sur-semaine ici : contrairement aux 4 KPI de l'Executive
+            # Summary (1e), ReportKpis n'a pas de mean_time_to_kev_days_trend_pct et run_entry ne
+            # persiste pas ce champ dans runs/index.json — l'ajouter demanderait de nouvelles
+            # colonnes historiques, hors périmètre de ce fix de layout ponctuel. Phrase purement
+            # descriptive du run courant, pas de comparaison fabriquée.
+            "trend_sentence": (
+                f"Critical vulnerabilities took an average of {kpis.mean_time_to_kev_days:.1f} days "
+                f"to go from public disclosure to confirmed active exploitation this run — CISA's own "
+                f"remediation deadline for this week's KEV additions currently averages "
+                f"{kev_remediation_window_days:.1f} days."
+                if kpis.mean_time_to_kev_days is not None and kev_remediation_window_days is not None
+                else None
+            ),
         },
         "c2": {
             "active_count": kpis.c2_active_count,
@@ -1332,6 +1477,7 @@ def build_pdf_context(
             "online_count": kpis.malicious_url_count,
             "trend_pct": kpis.malicious_url_trend_pct,
             "items": malicious_url_items,
+            "pool_total": malicious_url_pool_total,
             "sparkline": _build_sparkline_svg(_series("malicious_url_count", kpis.malicious_url_count)),
             "trend_chart": _build_area_chart_svg(_series("malicious_url_count", kpis.malicious_url_count)),
             "threat_type_breakdown": (
@@ -1359,7 +1505,15 @@ def build_pdf_context(
         },
         "ransomware_watch": _ransomware_watch_context(ransomware_watch, sources_status),
         "geo": {
-            "top_countries": _geo_top_countries(feodo_df, _TOP_N_COUNTRIES),
+            # Step 4 (GeoIP/ASN MVP) : top_asn (C2 infra, ci-dessus) a déjà son bar chart depuis
+            # le début — top_countries restait chip-list-only par choix documenté (la plupart des
+            # comptes valaient 1, un bar chart de tout-à-1 n'ajoute aucun signal qu'un chiffre ne
+            # dit déjà, cf. CLAUDE.md "WeasyPrint 62.3"). _build_mini_bar_chart_svg gate déjà ce
+            # cas (rows[0].count == rows[-1].count -> None) — réutiliser cette même fonction ici
+            # ajoute un chart UNIQUEMENT quand la distribution a un vrai signal, sans revenir sur
+            # la décision documentée pour le cas plat.
+            "top_countries": (_top_countries_rows := _geo_top_countries(feodo_df, _TOP_N_COUNTRIES)),
+            "top_countries_chart": _build_mini_bar_chart_svg(_top_countries_rows, "country_name"),
         },
         "history_chart": {
             "svg": _build_history_line_chart_svg(

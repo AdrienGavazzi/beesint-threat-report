@@ -37,7 +37,12 @@ def _map_urlhaus_item(item: dict) -> dict:
         "url_status": item["url_status"],
         "date_added": date_added,
         "threat": item["threat"],
-        "tags": item.get("tags", []),
+        # abuse.ch renvoie explicitement "tags": null (pas juste une clé absente) pour les URL
+        # sans tag — `.get("tags", [])` ne défaultait que sur clé absente, jamais sur None,
+        # donc UrlhausEntry.tags (list[str]) rejetait ces lignes. Vérifié empiriquement contre
+        # le flux réel json_online (2026-07-19) : 440/16047 lignes en quarantaine, 100% pour
+        # cette exacte raison (root cause de la spam quarantine ~4000 occurrences/semaine).
+        "tags": item.get("tags") or [],
         "host": host,
         "reporter": item.get("reporter"),
     }

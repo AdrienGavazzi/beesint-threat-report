@@ -5,8 +5,8 @@ import polars as pl
 from beesint_threat_report.load.pdf_context import (
     _build_cvss_epss_scatter_svg,
     _build_executive_summary,
-    _build_lollipop_chart_svg,
     _build_multi_donut_svg,
+    _build_sector_bar_chart_svg,
     _build_sparkline_svg,
     _c2_cross_confirmed,
     _format_breach_count,
@@ -416,25 +416,31 @@ def test_build_multi_donut_svg_renders_one_arc_per_nonzero_segment():
     assert ">3<" in svg  # total au centre (2 + 0 + 1)
 
 
-# ---- _build_lollipop_chart_svg / _ransomware_watch_context (Ransomware Watch) -----------------
+# ---- _build_sector_bar_chart_svg / _ransomware_watch_context (Ransomware Watch) ---------------
+# Bar chart horizontal (rank + icone SECTOR_ICONS + label + barre + count), remplace l'ancien
+# lollipop chart (choix utilisateur, cf. plan "sector chart mismatch" — lollipop vs gauge vs bar).
 
 
-def test_build_lollipop_chart_svg_none_below_min_items():
+def test_build_sector_bar_chart_svg_none_below_min_items():
     rows = [{"sector": "Healthcare", "count": 3}, {"sector": "Retail", "count": 2}]
-    assert _build_lollipop_chart_svg(rows, "sector") is None
+    assert _build_sector_bar_chart_svg(rows, "sector") is None
 
 
-def test_build_lollipop_chart_svg_renders_one_mark_per_row():
+def test_build_sector_bar_chart_svg_renders_one_bar_per_row():
     rows = [
         {"sector": "Manufacturing", "count": 6, "color": "#0EA5E9"},
         {"sector": "Healthcare", "count": 4, "color": "#F59E0B"},
         {"sector": "Retail", "count": 3, "color": "#22C55E"},
     ]
-    svg = _build_lollipop_chart_svg(rows, "sector")
+    svg = _build_sector_bar_chart_svg(rows, "sector")
     assert svg is not None
-    assert svg.count("<circle") == 3
+    assert svg.count("<rect") == 3
     assert "Manufacturing" in svg
     assert "#0EA5E9" in svg
+    # rank number (1, 2, 3) + icone secteur (SECTOR_ICONS) présents en plus du bar chart lui-même.
+    assert ">1<" in svg
+    assert ">2<" in svg
+    assert ">3<" in svg
 
 
 def test_ransomware_watch_context_disabled_when_source_not_ok():

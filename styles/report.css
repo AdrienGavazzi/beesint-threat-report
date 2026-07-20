@@ -185,20 +185,35 @@ h1, h2, h3 {
   margin-bottom: 28px;
 }
 
+/* Hiérarchie de titres à 3 niveaux (section > sous-section > card), demande explicite : avant
+   ce fix .section-title réécrasait --font-display (Syne, posé par la règle h1,h2,h3) en
+   --font-mono, donc Syne n'atteignait jamais que le <h1> de couverture — le seul écart visuel
+   entre section-title (mono 10px) et chart-card-title (mono 8px, cf. plus bas) était trop
+   faible pour lire un niveau au premier coup d'oeil. Niveau 1 restaure Syne + une taille/couleur
+   nettement au-dessus des deux autres niveaux ; niveau 2 (.subsection-title, nouveau) reprend
+   l'ancien traitement mono/uppercase de niveau 1 (couleur --color-primary-light déjà validée
+   visuellement) pour un sous-regroupement à l'intérieur d'une section ; niveau 3
+   (.chart-card-title, inchangé) reste le plus petit/muted. */
 .section-title {
-  /* .section-title cible des <h2> : la règle h1,h2,h3 pose font-weight:700, jamais
-     surchargée ici -> JetBrains Mono à 700 (non embarqué, seuls 400/500 le sont) -> police
-     système en fallback silencieux selon la machine. Reset explicite, même raison que la
-     règle th. */
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-primary);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 5px;
+  margin-bottom: 6px;
+}
+
+.subsection-title {
   font-family: var(--font-mono);
   font-weight: 500;
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  font-size: 9px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-primary-light);
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: 4px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .section-desc {
@@ -424,6 +439,13 @@ h1, h2, h3 {
    caractères sans troncature à 12px JetBrains Mono. */
 .kpi-card--wide {
   flex-basis: 260px;
+}
+.kpi-trend {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  margin-top: 2px;
 }
 .kpi-card .value--run-id {
   font-size: 12px;
@@ -687,7 +709,7 @@ tbody tr:nth-child(even) {
   /* 18px -> 32px -> 48px : toujours trop collé au rendu réel malgré 32px (le cercle du donut a
      lui-même un rayon large, peu de marge visuelle restait). Paire fixe à 2 enfants (pas de
      wrap), donc gap reste fiable ici — ce n'est pas le bug flex-wrap+gap documenté plus haut. */
-  gap: 48px;
+  gap: 68px;
   padding-left: 4px;
   /* Légende poussée pour exploiter l'espace libre à droite du donut plutôt que de rester
      collée contre lui — safe ici aussi : toujours 2 enfants fixes, jamais de wrap. */
@@ -728,7 +750,8 @@ tbody tr:nth-child(even) {
    règle jusqu'ici. .history-line-chart/.area-chart sont les classes posées sur la racine <svg>
    par _build_history_line_chart_svg/_build_area_chart_svg (pdf_context.py). */
 .chart-card svg.history-line-chart,
-.chart-card svg.area-chart {
+.chart-card svg.area-chart,
+.chart-card svg.epss-scatter {
   width: 100%;
   height: auto;
   display: block;
@@ -754,9 +777,9 @@ tbody tr:nth-child(even) {
   margin-bottom: 6px;
 }
 
-/* Lollipop horizontal (Ransomware Watch : secteurs ciblés, cf. pdf_context.py
-   _build_lollipop_chart_svg) — même piège de largeur fixe SVG que .stacked-bar ci-dessus. */
-.lollipop-chart {
+/* Bar chart horizontal (Ransomware Watch : secteurs ciblés, cf. pdf_context.py
+   _build_sector_bar_chart_svg) — même piège de largeur fixe SVG que .stacked-bar ci-dessus. */
+.sector-bar-chart {
   width: 100%;
   height: auto;
   display: block;
@@ -778,28 +801,6 @@ tbody tr:nth-child(even) {
   flex: 1 1 45%;
   min-width: 260px;
   margin: 0 20px 20px 0;
-}
-
-/* MTTK — colonne verticale des 3 KPI à droite de la jauge (cf. _mttk.html.j2), remplace l'ancien
-   wrapper .chart-card qui encadrait les 3 KPI d'une card superflue. flex-direction:column, donc
-   flex-basis porte sur la hauteur (pas la largeur) — .kpi-card doit rester à sa hauteur naturelle
-   (flex: 0 0 auto) et prendre toute la largeur dispo (align-items:stretch par défaut suffit, pas
-   besoin de width:100% explicite).
-   200px -> 160px + ajout d'une margin (absente jusqu'ici, incohérence avec le reste du fichier
-   qui porte tout son spacing via margin plutôt que gap sur le parent .chart-row) : la nouvelle
-   .mttk-remediation-card (toujours rendue, cf. Phase P3) doit tenir sur la même ligne que le
-   gauge + cette colonne sans wrapper, y compris quand le gauge est aussi présent. */
-.mttk-kpi-column {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 160px;
-  margin: 0 16px 16px 0;
-}
-.mttk-kpi-column .kpi-card {
-  flex: 0 0 auto;
-}
-.mttk-remediation-card {
-  flex: 1 1 160px;
 }
 
 /* Section lineage — refonte "liste sobre" (plus de card look) : ces lignes ne sont pas des KPI,

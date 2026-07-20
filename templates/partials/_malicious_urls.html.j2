@@ -32,6 +32,7 @@
   {% endif %}
 
   {% if malicious_urls['items'] %}
+  <p class="section-desc" style="margin-top: 10px; margin-bottom: 4px;">Top 10{% if malicious_urls.pool_total %} of {{ malicious_urls.pool_total }} detected{% endif %} this week — freshly ranked every run, not a fixed list.</p>
   <table>
     <thead>
       <tr>

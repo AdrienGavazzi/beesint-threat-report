@@ -685,7 +685,7 @@ def _build_top_ips(
     return result
 
 
-async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
+async def run(force_refresh: bool = False, notify_subscribers: bool = False) -> dict:
     started_at = time.monotonic()
     settings = load_settings()
     settings = _override_force_refresh(settings, force_refresh)
@@ -912,6 +912,8 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
             "sector_breakdown": ransomware_sector_breakdown,
         }
         breach_items = build_breach_items(ranked_breaches, breachdirectory_count)
+        breaches_new_count = len(breach_items)
+        breaches_total_accounts_exposed = sum(item["pwn_count"] for item in breach_items)
         transform_done_at = time.monotonic()
 
         # load
@@ -968,6 +970,7 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
                 feodo_df=ip_frame,
                 c2_items=c2_items,
                 malicious_url_items=malicious_url_items,
+                malicious_url_pool_total=url_frame.height,
                 breach_items=breach_items,
                 pipeline_duration_seconds=pipeline_duration_seconds,
                 sources_status=sources_status,
@@ -1006,6 +1009,7 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
             sources_status=sources_status,
             c2_items=c2_items,
             malicious_url_items=malicious_url_items,
+            malicious_url_pool_total=url_frame.height,
             is_cold_start=is_cold_start,
             ransomware_watch=ransomware_watch_context,
         )
@@ -1040,9 +1044,11 @@ async def run(force_refresh: bool = False, skip_email: bool = False) -> dict:
             storage_options=storage_options,
             source_item_counts=source_item_counts,
             step_durations=step_durations,
-            skip_email=skip_email,
+            skip_email=not notify_subscribers,
             github_run_id=github_run_id,
             epss_high_priority_count=epss_high_priority_count,
+            breaches_new_count=breaches_new_count,
+            breaches_total_accounts_exposed=breaches_total_accounts_exposed,
         )
 
         # publish_status() est le seul appel du pipeline sans try/except propre — une URL de
@@ -1140,6 +1146,8 @@ def finalize_manifest_and_index(
     skip_email: bool = False,
     github_run_id: str | None = None,
     epss_high_priority_count: int = 0,
+    breaches_new_count: int = 0,
+    breaches_total_accounts_exposed: int = 0,
 ) -> dict:
     run_entry = {
         "run_id": run_id,
@@ -1160,6 +1168,8 @@ def finalize_manifest_and_index(
         "ransomware_victim_count": kpis.ransomware_victim_count,
         "ransomware_active_groups_count": kpis.ransomware_active_groups_count,
         "epss_high_priority_count": epss_high_priority_count,
+        "breaches_new_count": breaches_new_count,
+        "breaches_total_accounts_exposed": breaches_total_accounts_exposed,
         "pipeline_duration_seconds": pipeline_duration_seconds,
         "s3_json_key": s3_json_key,
         "s3_pdf_key": s3_pdf_key,
@@ -1203,9 +1213,9 @@ def main() -> None:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--force-refresh", action="store_true")
-    parser.add_argument("--skip-email", action="store_true")
+    parser.add_argument("--notify-subscribers", action="store_true")
     args = parser.parse_args()
-    asyncio.run(run(force_refresh=args.force_refresh, skip_email=args.skip_email))
+    asyncio.run(run(force_refresh=args.force_refresh, notify_subscribers=args.notify_subscribers))
 
 
 if __name__ == "__main__":
