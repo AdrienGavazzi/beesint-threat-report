@@ -778,9 +778,14 @@ tbody tr:nth-child(even) {
 }
 
 /* Bar chart horizontal (Ransomware Watch : secteurs ciblés, cf. pdf_context.py
-   _build_sector_bar_chart_svg) — même piège de largeur fixe SVG que .stacked-bar ci-dessus. */
+   _build_sector_bar_chart_svg) — même piège de largeur fixe SVG que .stacked-bar ci-dessus.
+   max-width en plus : la card parente (.breakdown-col, flex-basis 100%) fait toute la largeur
+   de la page, bien plus large que le viewBox natif du SVG (320px par défaut) — sans plafond,
+   width:100% étire le graphe (texte + barres + hauteur de ligne) à 2x+ sa taille prévue, même
+   bug que le stretch confirmé côté frontend (RansomwareSectorLollipop.tsx) sur la même donnée. */
 .sector-bar-chart {
   width: 100%;
+  max-width: 480px;
   height: auto;
   display: block;
   margin-bottom: 6px;

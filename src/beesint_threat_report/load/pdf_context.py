@@ -43,6 +43,7 @@ SECTOR_ICONS: dict[str, str] = {
     "Business Services": "\U0001f4bc",
     "Consumer Services": "\U0001f6cd️",
     "Agriculture": "\U0001f33e",
+    "Agriculture and Food": "\U0001f33e",
     "unknown": "❓",
 }
 
