@@ -25,6 +25,7 @@ _URL_TRUNCATE_LEN = 80
 # exhaustive garantie côté source).
 SECTOR_ICONS: dict[str, str] = {
     "Finance": "\U0001f4b0",
+    "Financial Services": "\U0001f4b0",
     "Healthcare": "\U0001f3e5",
     "Government": "\U0001f3db️",
     "Education": "\U0001f393",
@@ -32,12 +33,16 @@ SECTOR_ICONS: dict[str, str] = {
     "Retail": "\U0001f6d2",
     "Manufacturing": "\U0001f3ed",
     "Tech": "\U0001f4bb",
+    "Technology": "\U0001f4bb",
     "Telecom": "\U0001f4e1",
     "Transportation": "\U0001f69a",
     "Legal": "⚖️",
     "Media": "\U0001f4f0",
     "Hospitality": "\U0001f3e8",
     "Real Estate": "\U0001f3e2",
+    "Business Services": "\U0001f4bc",
+    "Consumer Services": "\U0001f6cd️",
+    "Agriculture": "\U0001f33e",
     "unknown": "❓",
 }
 
@@ -833,7 +838,7 @@ def _build_sector_bar_chart_svg(
     max_count = max(row[count_key] for row in rows) or 1
     rank_w = 14
     icon_w = 16
-    label_w = 96
+    label_w = 130
     plot_w = width - rank_w - icon_w - label_w - 34
     extra_row = 1 if hidden_count > 0 else 0
     height = row_height * (len(rows) + extra_row) + 8
@@ -846,7 +851,8 @@ def _build_sector_bar_chart_svg(
         bar_w = max((row[count_key] / max_count) * plot_w, 2)
         color = row.get("color") or _HISTOGRAM_COLOR
         icon = SECTOR_ICONS.get(str(row[label_key]), SECTOR_ICONS["unknown"])
-        label = str(row[label_key])[:14]
+        sector_name = str(row[label_key])
+        label = f"{sector_name[:19]}…" if len(sector_name) > 20 else sector_name
         text_y = y + row_height / 2 + 3
         bars.append(
             f'<text x="0" y="{text_y:.1f}" fill="{_TEXT_MUTED_COLOR}" '
