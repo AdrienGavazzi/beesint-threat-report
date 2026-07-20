@@ -10,6 +10,7 @@ from beesint_threat_report.load.pdf_context import (
     _build_sparkline_svg,
     _c2_cross_confirmed,
     _format_breach_count,
+    _geo_top_countries,
     _kev_items,
     _open_ports_breakdown,
     _ransomware_watch_context,
@@ -441,6 +442,23 @@ def test_build_sector_bar_chart_svg_renders_one_bar_per_row():
     assert ">1<" in svg
     assert ">2<" in svg
     assert ">3<" in svg
+
+
+def test_geo_top_countries_includes_flag_and_label():
+    feodo_df = pl.DataFrame({"country": ["US", "US", "FR"]})
+    rows = _geo_top_countries(feodo_df, 10)
+    us_row = next(r for r in rows if r["country_code"] == "US")
+    assert us_row["country_name"] == "United States"
+    assert us_row["country_flag"] == "\U0001f1fa\U0001f1f8"  # regional indicators U + S
+    assert us_row["country_label"] == "\U0001f1fa\U0001f1f8 United States"
+
+
+def test_build_sector_bar_chart_svg_caps_rows_and_shows_more_count():
+    rows = [{"sector": f"Sector{i}", "count": 10 - i} for i in range(10)]
+    svg = _build_sector_bar_chart_svg(rows, "sector")
+    assert svg is not None
+    assert svg.count("<rect") == 8  # _SECTOR_CHART_MAX_ROWS
+    assert "+2 more" in svg
 
 
 def test_ransomware_watch_context_disabled_when_source_not_ok():

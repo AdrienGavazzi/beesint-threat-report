@@ -12,14 +12,14 @@ def compute_mean_time_to_kev(joined_df: pl.DataFrame) -> float | None:
     if joined_df.height == 0:
         return None
     deltas = (joined_df["kev_date_added"] - joined_df["published_date"]).dt.total_days()
-    return float(deltas.mean())
+    return round(float(deltas.mean()), 1)
 
 
 def compute_median_time_to_kev(joined_df: pl.DataFrame) -> float | None:
     if joined_df.height == 0:
         return None
     deltas = (joined_df["kev_date_added"] - joined_df["published_date"]).dt.total_days()
-    return float(deltas.median())
+    return round(float(deltas.median()), 1)
 
 
 def compute_mean_remediation_window_days(kev_df: pl.DataFrame) -> float | None:
@@ -31,4 +31,4 @@ def compute_mean_remediation_window_days(kev_df: pl.DataFrame) -> float | None:
     if kev_df.height == 0:
         return None
     deltas = (kev_df["due_date"] - kev_df["date_added"]).dt.total_days()
-    return float(deltas.mean())
+    return round(float(deltas.mean()), 1)

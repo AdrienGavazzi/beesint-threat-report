@@ -662,7 +662,7 @@ tbody tr:nth-child(even) {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg-surface);
-  padding: 12px 14px;
+  padding: 14px 16px;
   margin: 0 16px 16px 0;
 }
 /* Variante pleine largeur — même marge droite que .chart-card (16px, pas 10px comme avant) pour
@@ -784,6 +784,15 @@ tbody tr:nth-child(even) {
   height: auto;
   display: block;
   margin-bottom: 6px;
+}
+
+/* Même piège de largeur fixe SVG que .map-frame svg/.stacked-bar ci-dessus, sur les mini bar
+   charts (Breaches This Week, Top Countries, THREAT TYPE BREAKDOWN — _build_mini_bar_chart_svg)
+   et l'histogramme CVSS (_build_cvss_histogram_svg), tous deux dans pdf_context.py. */
+.chart-card svg.mini-bar-chart,
+.chart-card svg.cvss-histogram {
+  width: 100%;
+  height: auto;
 }
 
 /* Malware family / Top ASN / Open ports (C2 infra) — même bug flex-wrap+gap documenté sur

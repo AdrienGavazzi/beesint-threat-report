@@ -105,6 +105,11 @@ _URLHAUS_EMPTY_SCHEMA = {
     "threat": pl.Utf8,
     "tags": pl.List(pl.Utf8),
 }
+# Cut plus large que le top-10 IP (table/carte) réservé au seul breakdown ASN — le géoloc
+# ip-api.com reste borné (pas le feed complet) pour la même discipline de coût que
+# Shodan/Spamhaus/GreyNoise, tout en donnant un signal de distribution ASN réel plutôt que 10
+# lignes à count=1 chacune.
+_ASN_BREAKDOWN_TOP_N = 60
 
 
 def _records_to_frame(records: list, schema: dict) -> pl.DataFrame:
@@ -791,6 +796,9 @@ async def run(force_refresh: bool = False, notify_subscribers: bool = False) -> 
         ranked_ips = ranking.rank_top_n_ips(ip_frame, n=10) if ip_frame.height else ip_frame
         ranked_urls = ranking.rank_top_n_urls(url_frame, n=10) if url_frame.height else url_frame
         ranked_breaches = ranking.rank_top_n_breaches(hibp_entries, n=10)
+        # Set élargi (ASN breakdown uniquement, cf. _ASN_BREAKDOWN_TOP_N) — le tableau IP/carte
+        # (ranked_ips ci-dessus) reste top-10.
+        ranked_ips_for_asn = ranking.rank_top_n_ips(ip_frame, n=_ASN_BREAKDOWN_TOP_N) if ip_frame.height else ip_frame
 
         # EPSS interrogé uniquement sur les CVE déjà retenus (critiques top-N + KEV de ce run,
         # dédupliqués) — jamais un feed complet, même principe que Shodan/Spamhaus/GreyNoise.
@@ -813,10 +821,17 @@ async def run(force_refresh: bool = False, notify_subscribers: bool = False) -> 
                 FeodoIpRecord(**row) for row in ranked_ips.select(list(_FEODO_EMPTY_SCHEMA.keys())).to_dicts()
             ]
             ip_list = [r.ip_address for r in ip_records]
-            geo_key = cache_key("geoloc", {"ips": sorted(ip_list)})
+        if ranked_ips_for_asn.height:
+            # Géoloc élargi (top _ASN_BREAKDOWN_TOP_N, pas le feed complet) — couvre à la fois le
+            # top_ips ci-dessous (top-10 ⊆ ce set élargi) et le breakdown ASN plus bas. Shodan/
+            # Spamhaus/GreyNoise juste après restent sur ip_list (top-10 narrow), jamais ce set.
+            geo_ip_records = [
+                FeodoIpRecord(**row) for row in ranked_ips_for_asn.select(list(_FEODO_EMPTY_SCHEMA.keys())).to_dicts()
+            ]
+            geo_key = cache_key("geoloc", {"ips": sorted(r.ip_address for r in geo_ip_records)})
             geo_raw = await get_or_fetch(
                 geo_key,
-                lambda: _fetch_geo_wrapped(client, ip_records, settings.ip_api_batch_url),
+                lambda: _fetch_geo_wrapped(client, geo_ip_records, settings.ip_api_batch_url),
                 settings.cache_dir,
                 settings.force_refresh,
             )
@@ -895,6 +910,28 @@ async def run(force_refresh: bool = False, notify_subscribers: bool = False) -> 
         c2_items = build_c2_items(top_ips)
         malicious_url_items = build_malicious_url_items(ranked_urls)
 
+        # Pools "vrai volume" pour les 3 breakdowns (malware_family/ASN/threat_type) — jamais le
+        # top-10 déjà réduit (c2_items/malicious_url_items) : root cause du bug "RÉPARTITION PAR
+        # TYPE DE MENACE" affichant 10 alors que url_frame.height dépasse 16000. malware_family et
+        # threat_type viennent de colonnes déjà présentes sur le feed complet (aucun coût API
+        # additionnel) ; asn vient du géoloc élargi (ranked_ips_for_asn/geo) ci-dessus, borné à
+        # _ASN_BREAKDOWN_TOP_N, jamais le feed complet.
+        malware_family_pool_items = (
+            [{"malware_family": v} for v in ip_frame["malware"].to_list()]
+            if ip_frame.height and "malware" in ip_frame.columns
+            else []
+        )
+        asn_pool_items = (
+            [{"asn": geo.get(row["ip_address"], {}).get("asn")} for row in ranked_ips_for_asn.to_dicts()]
+            if ranked_ips_for_asn.height
+            else []
+        )
+        threat_type_pool_items = (
+            [{"threat_type": v} for v in url_frame["threat"].to_list()]
+            if url_frame.height and "threat" in url_frame.columns
+            else []
+        )
+
         # Ransomware Watch (section indépendante, cf. CLAUDE.md) — jointure groups.json par nom
         # normalisé (cf. ransomware_live.normalize_group_name).
         groups_by_normalized_name = {ransomware_live.normalize_group_name(g.name): g for g in ransomware_groups}
@@ -971,6 +1008,9 @@ async def run(force_refresh: bool = False, notify_subscribers: bool = False) -> 
                 c2_items=c2_items,
                 malicious_url_items=malicious_url_items,
                 malicious_url_pool_total=url_frame.height,
+                malware_family_pool=malware_family_pool_items,
+                asn_pool=asn_pool_items,
+                threat_type_pool=threat_type_pool_items,
                 breach_items=breach_items,
                 pipeline_duration_seconds=pipeline_duration_seconds,
                 sources_status=sources_status,
@@ -1010,6 +1050,9 @@ async def run(force_refresh: bool = False, notify_subscribers: bool = False) -> 
             c2_items=c2_items,
             malicious_url_items=malicious_url_items,
             malicious_url_pool_total=url_frame.height,
+            malware_family_pool=malware_family_pool_items,
+            asn_pool=asn_pool_items,
+            threat_type_pool=threat_type_pool_items,
             is_cold_start=is_cold_start,
             ransomware_watch=ransomware_watch_context,
         )
@@ -1106,9 +1149,10 @@ def _override_force_refresh(settings: Settings, force_refresh: bool) -> Settings
 
 def _kpis_from_manifest(manifest: dict | None):
     """Reconstruit un ReportKpis minimal depuis manifest.json — seuls cve_critical_count,
-    kev_new_count, c2_active_count, malicious_url_count et threatfox_malware_families_count
-    sont réellement consommés en aval (compute_kpis ne calcule de trend que sur ces champs),
-    les autres champs sont des placeholders neutres."""
+    kev_new_count, c2_active_count, malicious_url_count, threatfox_malware_families_count,
+    ransomware_victim_count et ransomware_active_groups_count sont réellement consommés en aval
+    (compute_kpis ne calcule de trend que sur ces champs), les autres champs sont des
+    placeholders neutres."""
     if manifest is None:
         return None
     return kpis_module.ReportKpis(
@@ -1125,6 +1169,8 @@ def _kpis_from_manifest(manifest: dict | None):
         top_vendors=[],
         cwe_distribution=[],
         threatfox_malware_families_count=manifest.get("threatfox_malware_families_count", 0),
+        ransomware_victim_count=manifest.get("ransomware_victim_count", 0),
+        ransomware_active_groups_count=manifest.get("ransomware_active_groups_count", 0),
     )
 
 

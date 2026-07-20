@@ -126,3 +126,14 @@ def country_name(country_code: str | None) -> str:
     if not country_code:
         return "Unknown"
     return _COUNTRY_NAMES.get(country_code.upper(), country_code)
+
+
+def country_flag(country_code: str | None) -> str:
+    """ISO alpha-2 -> flag emoji via la formule regional indicator symbol (chaque lettre ->
+    U+1F1E6 + offset alphabet, WeasyPrint le rend via la police emoji système). Retourne "" (pas
+    de flag) plutôt que de crasher sur un code absent/invalide/non alpha-2 — même discipline
+    défensive que country_name ci-dessus."""
+    if not country_code or len(country_code) != 2 or not country_code.isalpha():
+        return ""
+    code = country_code.upper()
+    return "".join(chr(0x1F1E6 + (ord(c) - ord("A"))) for c in code)

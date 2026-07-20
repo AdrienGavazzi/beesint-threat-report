@@ -6,7 +6,7 @@
   {{ geo.top_countries_chart | safe }}
   {% else %}
   <div class="chip-list">
-    {% for item in geo.top_countries %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.country_name }} ({{ item.country_code }})<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
+    {% for item in geo.top_countries %}<span class="chip{{ ' chip-lead' if loop.first }}">{{ item.country_flag | default('') }} {{ item.country_name }} ({{ item.country_code }})<span class="chip-count">{{ item.count }}</span></span>{% endfor %}
   </div>
   {% endif %}
   {% endif %}

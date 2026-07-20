@@ -50,7 +50,7 @@
     <div class="chart-card">
       <p class="chart-card-title">CVSS &times; EPSS — real exploitation priority</p>
       {{ cve.cvss_epss_scatter | safe }}
-      <p class="section-desc" style="margin-top: 6px; font-size: 8px;">{{ cve.cvss_epss_subtitle }} Color: <span style="color:#22C55E;">green</span> &lt;0.1, <span style="color:#F59E0B;">amber</span> 0.1-0.5, <span style="color:#EF4444;">red</span> &gt;0.5 EPSS.</p>
+      <p class="section-desc" style="margin-top: 6px; font-size: 9px;">{{ cve.cvss_epss_subtitle }} Color: <span style="color:#22C55E;">green</span> &lt;0.1, <span style="color:#F59E0B;">amber</span> 0.1-0.5, <span style="color:#EF4444;">red</span> &gt;0.5 EPSS.</p>
     </div>
     {% endif %}
   </div>

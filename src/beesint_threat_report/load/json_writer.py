@@ -23,6 +23,9 @@ def build_report_payload(
     c2_items: list[dict],
     malicious_url_items: list[dict],
     malicious_url_pool_total: int = 0,
+    malware_family_pool: list[dict] | None = None,
+    asn_pool: list[dict] | None = None,
+    threat_type_pool: list[dict] | None = None,
     is_cold_start: bool = False,
     ransomware_watch: dict | None = None,
 ) -> dict:
@@ -66,11 +69,21 @@ def build_report_payload(
         "cwe_breakdown": [{"cwe": row["cwe_id"], "count": row["count"]} for row in kpis.cwe_distribution],
         # Mêmes helpers que pdf_context.py::build_pdf_context — mêmes chiffres affichés côté
         # PDF et côté JSON public, aucune logique d'agrégation dupliquée (cf. CDC json_writer.py).
-        "c2_malware_family_breakdown": _chip_breakdown(c2_items, "malware_family", "malware_family", _TOP_N_COUNTRIES),
-        "c2_top_asn": _chip_breakdown(c2_items, "asn", "asn", _TOP_N_COUNTRIES),
+        # *_pool couvrent le vrai volume (feed complet / géoloc élargi), pas seulement c2_items/
+        # malicious_url_items (top-10) — cf. orchestrate.py. Fallback si absent (None).
+        "c2_malware_family_breakdown": _chip_breakdown(
+            malware_family_pool if malware_family_pool is not None else c2_items,
+            "malware_family",
+            "malware_family",
+            _TOP_N_COUNTRIES,
+        ),
+        "c2_top_asn": _chip_breakdown(asn_pool if asn_pool is not None else c2_items, "asn", "asn", _TOP_N_COUNTRIES),
         "c2_cross_confirmed": _c2_cross_confirmed(c2_items, sources_status),
         "malicious_url_threat_type_breakdown": _chip_breakdown(
-            malicious_url_items, "threat_type", "threat_type", _TOP_N_COUNTRIES
+            threat_type_pool if threat_type_pool is not None else malicious_url_items,
+            "threat_type",
+            "threat_type",
+            _TOP_N_COUNTRIES,
         ),
         "pipeline_duration_seconds": pipeline_duration_seconds,
         "generated_at": datetime.now(UTC).isoformat(),

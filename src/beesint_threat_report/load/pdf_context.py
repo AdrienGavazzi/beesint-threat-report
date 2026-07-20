@@ -6,7 +6,7 @@ from datetime import datetime
 
 import polars as pl
 
-from beesint_threat_report.load.countries import country_name
+from beesint_threat_report.load.countries import country_flag, country_name
 from beesint_threat_report.load.cwe_names import cwe_name
 from beesint_threat_report.load.world_borders_path import WORLD_BORDERS_PATH_D
 from beesint_threat_report.load.world_map_path import WORLD_LANDMASS_PATH_D
@@ -615,7 +615,7 @@ def _build_cvss_epss_scatter_svg(
 
     has_sparkline = trend_series is not None and len(trend_series) >= 2
     scatter_w = width + (sparkline_w if has_sparkline else 0)
-    left_margin, bottom_margin, top_margin, right_margin = 30, 20, 10, 10
+    left_margin, bottom_margin, top_margin, right_margin = 34, 22, 14, 10
     plot_w = width - left_margin - right_margin
     plot_h = height - top_margin - bottom_margin
 
@@ -630,16 +630,16 @@ def _build_cvss_epss_scatter_svg(
         f'<line x1="{left_margin}" y1="{top_margin}" x2="{left_margin}" y2="{height - bottom_margin}" '
         f'stroke="{_MAP_BORDER_COLOR}" stroke-width="1"/>'
         f'<text x="{left_margin}" y="{height - 4}" fill="{_TEXT_MUTED_COLOR}" '
-        f'font-family="JetBrains Mono, monospace" font-size="7">CVSS 0</text>'
+        f'font-family="JetBrains Mono, monospace" font-size="8.5">CVSS 0</text>'
         f'<text x="{width - right_margin}" y="{height - 4}" text-anchor="end" fill="{_TEXT_MUTED_COLOR}" '
-        f'font-family="JetBrains Mono, monospace" font-size="7">10</text>'
+        f'font-family="JetBrains Mono, monospace" font-size="8.5">10</text>'
         # Label Y (EPSS) manquant jusqu'ici — seul l'axe X était nommé. Vertical, ancré en haut de
         # l'axe, rotation -90° autour de son propre point d'ancrage.
         f'<text x="{left_margin - 6}" y="{top_margin + 4}" fill="{_TEXT_MUTED_COLOR}" '
-        f'font-family="JetBrains Mono, monospace" font-size="7" text-anchor="end" '
+        f'font-family="JetBrains Mono, monospace" font-size="8.5" text-anchor="end" '
         f'transform="rotate(-90 {left_margin - 6} {top_margin + 4})">EPSS 1.0</text>'
         f'<text x="{left_margin - 6}" y="{height - bottom_margin}" fill="{_TEXT_MUTED_COLOR}" '
-        f'font-family="JetBrains Mono, monospace" font-size="7" text-anchor="end">0</text>'
+        f'font-family="JetBrains Mono, monospace" font-size="8.5" text-anchor="end">0</text>'
     )
     dots = []
     for cvss, epss_score, _cve_id in points:
@@ -812,10 +812,12 @@ def _build_mini_bar_chart_svg(
 
 _SECTOR_CHART_MIN_ITEMS = 3  # même discipline que _PORT_BREAKDOWN_MIN_IPS : sous 3 secteurs, un chip-
 # list dit déjà tout ce qu'un graphe dirait, cf. _HISTOGRAM_MIN_ITEMS.
+_SECTOR_CHART_MAX_ROWS = 8  # au-delà, une "+N more" row plutôt qu'un chart qui grandit sans borne
+# (même souci que RansomwareSectorLollipop.tsx côté frontend, cf. MAX_RENDERED_ROWS là-bas).
 
 
 def _build_sector_bar_chart_svg(
-    rows: list[dict], label_key: str, count_key: str = "count", width: int = 320, row_height: int = 22
+    rows: list[dict], label_key: str, count_key: str = "count", width: int = 320, row_height: int = 18
 ) -> str | None:
     """Bar chart horizontal pour "Targeted sectors this week" (Ransomware Watch) — remplace
     l'ancien lollipop chart (choix utilisateur confirmé : mismatch relevé entre la description
@@ -826,12 +828,15 @@ def _build_sector_bar_chart_svg(
     if len(rows) < _SECTOR_CHART_MIN_ITEMS:
         return None
 
+    hidden_count = max(len(rows) - _SECTOR_CHART_MAX_ROWS, 0)
+    rows = rows[:_SECTOR_CHART_MAX_ROWS]
     max_count = max(row[count_key] for row in rows) or 1
     rank_w = 14
     icon_w = 16
     label_w = 96
     plot_w = width - rank_w - icon_w - label_w - 34
-    height = row_height * len(rows) + 8
+    extra_row = 1 if hidden_count > 0 else 0
+    height = row_height * (len(rows) + extra_row) + 8
 
     bars = []
     for i, row in enumerate(rows):
@@ -859,6 +864,13 @@ def _build_sector_bar_chart_svg(
         bars.append(
             f'<text x="{bar_x + bar_w + 6:.1f}" y="{text_y:.1f}" fill="{_TEXT_BODY_COLOR}" '
             f'font-family="JetBrains Mono, monospace" font-size="8.5">{row[count_key]}</text>'
+        )
+
+    if hidden_count > 0:
+        more_y = 8 + len(rows) * row_height + row_height / 2 + 3
+        bars.append(
+            f'<text x="{rank_w + icon_w}" y="{more_y:.1f}" fill="{_TEXT_MUTED_COLOR}" '
+            f'font-family="JetBrains Mono, monospace" font-size="8.5">+{hidden_count} more</text>'
         )
 
     return f'<svg viewBox="0 0 {width} {height}" class="sector-bar-chart">' + "".join(bars) + "</svg>"
@@ -1038,6 +1050,8 @@ def _geo_top_countries(feodo_df: pl.DataFrame, n: int) -> list[dict]:
     return [
         {
             "country_name": country_name(row["country"]),
+            "country_flag": country_flag(row["country"]),
+            "country_label": f"{country_flag(row['country'])} {country_name(row['country'])}".strip(),
             "country_code": row["country"],
             "count": row["count"],
             "pct_of_total": round(row["count"] / total * 100, 1),
@@ -1313,6 +1327,9 @@ def build_pdf_context(
     c2_items: list[dict],
     malicious_url_items: list[dict],
     malicious_url_pool_total: int = 0,
+    malware_family_pool: list[dict] | None = None,
+    asn_pool: list[dict] | None = None,
+    threat_type_pool: list[dict] | None = None,
     breach_items: list[dict],
     pipeline_duration_seconds: float,
     sources_status: dict[str, str],
@@ -1337,10 +1354,22 @@ def build_pdf_context(
     # nom -> couleur partagé avec le tableau (les cellules Malware family/ASN redeviennent plates).
     _c2_items_colored = _attach_rank_colors(c2_items, _IP_COLOR_TOKENS)
     _family_shapes = _family_shape_map(c2_items)
+    # malware_family_pool/asn_pool couvrent le vrai volume (feed complet / géoloc élargi), pas
+    # seulement c2_items (top-10) — cf. orchestrate.py. Fallback sur c2_items si absent (None),
+    # pour rester compatible avec un appelant qui ne les fournirait pas encore.
     _mf_breakdown = _attach_rank_colors(
-        _chip_breakdown(c2_items, "malware_family", "malware_family", _TOP_N_COUNTRIES), _MALWARE_FAMILY_COLOR_TOKENS
+        _chip_breakdown(
+            malware_family_pool if malware_family_pool is not None else c2_items,
+            "malware_family",
+            "malware_family",
+            _TOP_N_COUNTRIES,
+        ),
+        _MALWARE_FAMILY_COLOR_TOKENS,
     )
-    _asn_breakdown = _attach_rank_colors(_chip_breakdown(c2_items, "asn", "asn", _TOP_N_COUNTRIES), _ASN_COLOR_TOKENS)
+    _asn_breakdown = _attach_rank_colors(
+        _chip_breakdown(asn_pool if asn_pool is not None else c2_items, "asn", "asn", _TOP_N_COUNTRIES),
+        _ASN_COLOR_TOKENS,
+    )
     _ports_breakdown = _attach_rank_colors(_open_ports_breakdown(c2_items, _TOP_N_COUNTRIES), _PORT_COLOR_TOKENS)
     # Légende de formes (map-legend, template) — icônes SVG pré-rendues (même builder que les
     # points de la carte, cf. _build_shape_icon_svg), triées alphabétiquement comme _family_shapes.
@@ -1481,7 +1510,12 @@ def build_pdf_context(
             "sparkline": _build_sparkline_svg(_series("malicious_url_count", kpis.malicious_url_count)),
             "trend_chart": _build_area_chart_svg(_series("malicious_url_count", kpis.malicious_url_count)),
             "threat_type_breakdown": (
-                _tt_breakdown := _chip_breakdown(malicious_url_items, "threat_type", "threat_type", _TOP_N_COUNTRIES)
+                _tt_breakdown := _chip_breakdown(
+                    threat_type_pool if threat_type_pool is not None else malicious_url_items,
+                    "threat_type",
+                    "threat_type",
+                    _TOP_N_COUNTRIES,
+                )
             ),
             "threat_type_chart": _build_mini_bar_chart_svg(_tt_breakdown, "threat_type"),
         },
@@ -1513,7 +1547,7 @@ def build_pdf_context(
             # ajoute un chart UNIQUEMENT quand la distribution a un vrai signal, sans revenir sur
             # la décision documentée pour le cas plat.
             "top_countries": (_top_countries_rows := _geo_top_countries(feodo_df, _TOP_N_COUNTRIES)),
-            "top_countries_chart": _build_mini_bar_chart_svg(_top_countries_rows, "country_name"),
+            "top_countries_chart": _build_mini_bar_chart_svg(_top_countries_rows, "country_label"),
         },
         "history_chart": {
             "svg": _build_history_line_chart_svg(

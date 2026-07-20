@@ -29,7 +29,7 @@ def test_compute_kpis_cold_start_trend_none():
     assert kpis.kev_ransomware_count == 1
     assert kpis.c2_active_count == 1
     assert kpis.malicious_url_count == 1
-    assert kpis.top_countries == [{"country": "US", "count": 1}]
+    assert kpis.top_countries == [{"country": "US", "country_name": "United States", "count": 1}]
     assert kpis.top_vendors == [{"vendor": "acme", "count": 2}]
     assert {"cwe_id": "CWE-79", "count": 1} in kpis.cwe_distribution
 

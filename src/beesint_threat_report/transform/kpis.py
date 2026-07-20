@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 
 import polars as pl
 
+from beesint_threat_report.load.countries import country_name
+
 _URGENT_WINDOW_DAYS = 7
 _TOP_N_AGGREGATES = 10
 
@@ -82,7 +84,7 @@ def compute_kpis(
     malicious_url_count = urlhaus_df.filter(pl.col("url_status") == "online").height if urlhaus_df.height else 0
 
     top_countries = [
-        {"country": row["country"], "count": row["count"]}
+        {"country": row["country"], "country_name": country_name(row["country"]), "count": row["count"]}
         for row in _top_value_counts(feodo_df, "country", "count", _TOP_N_AGGREGATES)
     ]
     top_vendors = [
