@@ -469,7 +469,7 @@ def test_bee_logo_asset_is_compressed():
 
 
 def test_report_css_chart_card_full_matches_chart_card_right_margin():
-    # .chart-card--full doit garder la MEME marge droite que .chart-card (16px) pour que le
+    # .chart-card--full doit garder la MEME marge droite que .chart-card (20px) pour que le
     # margin-right négatif de .chart-row (fix "cards n'utilisent pas toute la largeur") compense
     # correctement les deux variantes de la même façon et atteigne le vrai bord droit du
     # conteneur (10px était un ajustement ad-hoc pour matcher l'ancien .kpi-grid, lui-même buggé
@@ -477,9 +477,9 @@ def test_report_css_chart_card_full_matches_chart_card_right_margin():
     css = _REPORT_CSS_PATH.read_text(encoding="utf-8")
     block = css.split(".chart-card--full {", 1)[1].split("}", 1)[0]
     assert "flex: 1 1 100%;" in block
-    assert "margin: 0 16px 16px 0;" in block
+    assert "margin: 0 20px 20px 0;" in block
     row_block = css.split(".chart-row {", 1)[1].split("}", 1)[0]
-    assert "margin-right: -16px;" in row_block
+    assert "margin-right: -20px;" in row_block
 
 
 def test_report_css_kpi_grid_compensates_last_card_margin():
