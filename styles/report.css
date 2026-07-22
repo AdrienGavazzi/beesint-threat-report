@@ -655,7 +655,7 @@ tbody tr:nth-child(even) {
   display: flex;
   flex-wrap: wrap;
   margin-top: 10px;
-  margin-right: -16px;
+  margin-right: -20px;
 }
 .chart-card {
   flex: 1 1 200px;
@@ -663,14 +663,14 @@ tbody tr:nth-child(even) {
   border-radius: var(--radius-md);
   background: var(--color-bg-surface);
   padding: 14px 16px;
-  margin: 0 16px 16px 0;
+  margin: 0 20px 20px 0;
 }
-/* Variante pleine largeur — même marge droite que .chart-card (16px, pas 10px comme avant) pour
-   que le margin-right négatif de .chart-row ci-dessus compense correctement les deux variantes
-   de la même façon et atteigne le vrai bord droit du conteneur. */
+/* Variante pleine largeur — même marge droite que .chart-card (20px) pour que le margin-right
+   négatif de .chart-row ci-dessus compense correctement les deux variantes de la même façon et
+   atteigne le vrai bord droit du conteneur. */
 .chart-card--full {
   flex: 1 1 100%;
-  margin: 0 16px 16px 0;
+  margin: 0 20px 20px 0;
 }
 .chart-card-title {
   font-family: var(--font-mono);
@@ -750,9 +750,20 @@ tbody tr:nth-child(even) {
    règle jusqu'ici. .history-line-chart/.area-chart sont les classes posées sur la racine <svg>
    par _build_history_line_chart_svg/_build_area_chart_svg (pdf_context.py). */
 .chart-card svg.history-line-chart,
-.chart-card svg.area-chart,
+.chart-card svg.area-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* CVSS x EPSS scatter (New Critical CVEs) — vit maintenant dans sa propre .chart-row en
+   .chart-card--full (pleine largeur de section, ~700px+), bien plus large que le viewBox natif
+   du SVG (350px avec la colonne sparkline) — sans max-width, width:100% étire le graphe (points,
+   axes, fonts) à 2x sa taille prévue, même bug de stretch que .sector-bar-chart/.stacked-bar
+   ci-dessus sur cette même classe de composant. */
 .chart-card svg.epss-scatter {
   width: 100%;
+  max-width: 350px;
   height: auto;
   display: block;
 }
@@ -769,9 +780,14 @@ tbody tr:nth-child(even) {
 
 /* Barre empilée horizontale (C2 infra : malware family/ASN/ports, cf. pdf_context.py
    _build_stacked_bar_svg) — même piège de largeur fixe SVG que .map-frame svg/.history-line-chart
-   ci-dessus : sans cette règle, la barre ne remplit que sa largeur SVG intrinsèque. */
+   ci-dessus : la fonction posait encore width/height en attributs fixes sur la racine <svg>
+   jusqu'à récemment (ignore toute règle CSS voulant les override, cf. CLAUDE.md "WeasyPrint
+   62.3"), rendant cette règle inerte — corrigé côté Python (attributs retirés, viewBox seul).
+   max-width : .breakdown-col (Top ASN) fait ~260-350px, un peu plus étroit que le viewBox natif
+   320px — sans plafond le SVG peut déborder légèrement de sa colonne. */
 .stacked-bar {
   width: 100%;
+  max-width: 320px;
   height: auto;
   display: block;
   margin-bottom: 6px;
@@ -793,10 +809,21 @@ tbody tr:nth-child(even) {
 
 /* Même piège de largeur fixe SVG que .map-frame svg/.stacked-bar ci-dessus, sur les mini bar
    charts (Breaches This Week, Top Countries, THREAT TYPE BREAKDOWN — _build_mini_bar_chart_svg)
-   et l'histogramme CVSS (_build_cvss_histogram_svg), tous deux dans pdf_context.py. */
-.chart-card svg.mini-bar-chart,
-.chart-card svg.cvss-histogram {
+   et l'histogramme CVSS (_build_cvss_histogram_svg), tous deux dans pdf_context.py — même fix
+   Python que .stacked-bar ci-dessus (attributs width/height retirés de la racine <svg>).
+   Sélecteur SANS ancêtre `.chart-card` (contrairement à la version précédente de cette règle) :
+   top_countries_chart vit dans une simple <section>, jamais dans une `.chart-card` — l'ancienne
+   règle scopée `.chart-card svg.mini-bar-chart` ne matchait donc jamais ce cas, override mort.
+   max-width par builder : plafonne au viewBox natif (width param par défaut de chaque fonction)
+   pour ne pas étirer le graphe au-delà de sa taille prévue dans un conteneur pleine largeur. */
+svg.mini-bar-chart {
   width: 100%;
+  max-width: 340px;
+  height: auto;
+}
+svg.cvss-histogram {
+  width: 100%;
+  max-width: 280px;
   height: auto;
 }
 

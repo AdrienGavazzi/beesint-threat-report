@@ -348,11 +348,7 @@ def _build_stacked_bar_svg(rows: list[dict], width: int = 320, height: int = 22)
         color = row.get("color") or _HISTOGRAM_COLOR
         segments.append(f'<rect x="{x:.1f}" y="0" width="{seg_width:.1f}" height="{height}" fill="{color}"/>')
         x += seg_width
-    return (
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="stacked-bar">'
-        + "".join(segments)
-        + "</svg>"
-    )
+    return f'<svg viewBox="0 0 {width} {height}" class="stacked-bar">' + "".join(segments) + "</svg>"
 
 
 # Palette catégorielle fixe pour le line chart CVE/KEV/C2 (3 séries, un seul axe partagé —
@@ -574,11 +570,7 @@ def _build_cvss_histogram_svg(
             f'font-family="JetBrains Mono, monospace" font-size="8">{label}</text>'
         )
 
-    return (
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="cvss-histogram">'
-        + "".join(bars)
-        + "</svg>"
-    )
+    return f'<svg viewBox="0 0 {width} {height}" class="cvss-histogram">' + "".join(bars) + "</svg>"
 
 
 def epss_band_color(epss_score: float | None) -> str:
@@ -599,7 +591,7 @@ def _build_cvss_epss_scatter_svg(
     critical_items: list[dict],
     trend_series: list[float] | None = None,
     width: int = 280,
-    height: int = 140,
+    height: int = 115,
     sparkline_w: int = 70,
 ) -> str | None:
     """CVSS (sévérité) x EPSS (probabilité d'exploitation réelle) — un CVE en haut à droite est la
@@ -809,11 +801,7 @@ def _build_mini_bar_chart_svg(
             f'font-family="JetBrains Mono, monospace" font-size="8.5">{_format_breach_count(row[count_key])}</text>'
         )
 
-    return (
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" class="mini-bar-chart">'
-        + "".join(bars)
-        + "</svg>"
-    )
+    return f'<svg viewBox="0 0 {width} {height}" class="mini-bar-chart">' + "".join(bars) + "</svg>"
 
 
 _SECTOR_CHART_MIN_ITEMS = 3  # même discipline que _PORT_BREAKDOWN_MIN_IPS : sous 3 secteurs, un chip-
