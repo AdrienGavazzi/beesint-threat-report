@@ -794,7 +794,11 @@ async def run(force_refresh: bool = False, notify_subscribers: bool = False) -> 
 
         ranked_cves = ranking.rank_top_n_cves(cve_df, n=10) if cve_df.height else cve_df
         ranked_ips = ranking.rank_top_n_ips(ip_frame, n=10) if ip_frame.height else ip_frame
-        ranked_urls = ranking.rank_top_n_urls(url_frame, n=10) if url_frame.height else url_frame
+        # n=50 (pas 10) : le JSON writer a besoin de jusqu'à 50 lignes pour la pagination frontend
+        # (cf. json_writer.py, passthrough non modifié) ; le PDF, lui, doit rester exactement à 10
+        # lignes ("Top 10" hardcodé dans _malicious_urls.html.j2) — coupé côté pdf_context.py
+        # (malicious_url_items[:10]) plutôt qu'ici, pour ne pas priver le JSON des 40 lignes en plus.
+        ranked_urls = ranking.rank_top_n_urls(url_frame, n=50) if url_frame.height else url_frame
         ranked_breaches = ranking.rank_top_n_breaches(hibp_entries, n=10)
         # Set élargi (ASN breakdown uniquement, cf. _ASN_BREAKDOWN_TOP_N) — le tableau IP/carte
         # (ranked_ips ci-dessus) reste top-10.

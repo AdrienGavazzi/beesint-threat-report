@@ -440,6 +440,28 @@ h1, h2, h3 {
 .kpi-card--wide {
   flex-basis: 260px;
 }
+/* MTTK empty state (sample_size == 0) : seule la card "CISA remediation window" survit dans le
+   kpi-grid (average/median/sample-size restent gated derrière sample_size > 0, gate volontaire
+   "no fake zeros", ne pas y toucher) — sans flex-grow, cette unique card hériterait quand même du
+   flex:1 1 120px par défaut et s'étirerait sur toute la largeur du kpi-grid (donc du chart-card
+   parent, déjà lui-même étiré plein-largeur car seul enfant de .chart-row), lisant comme une
+   grande card plate plutôt qu'un état à une seule métrique assumé. flex-grow:0 + largeur fixe
+   la garde compacte, cohérente avec la taille des autres kpi-card du rapport. */
+.kpi-card--solo {
+  flex: 0 0 220px;
+}
+/* Explication de l'état vide, attachée directement à la card plutôt que flottant en paragraphe
+   .section-desc pleine largeur sous .chart-row (l'ancien rendu) — même vocabulaire visuel que
+   .chart-card-title (font-mono, muted) mais en italique/plus petit pour signaler "note", pas
+   "titre". margin-top serré (6px, pas 10px) : elle doit lire comme rattachée au kpi-grid
+   au-dessus, pas comme un second bloc de texte indépendant. */
+.chart-empty-note {
+  font-style: italic;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  margin: 6px 0 0;
+  line-height: 1.4;
+}
 .kpi-trend {
   display: block;
   font-family: var(--font-mono);
@@ -795,13 +817,13 @@ tbody tr:nth-child(even) {
 
 /* Bar chart horizontal (Ransomware Watch : secteurs ciblés, cf. pdf_context.py
    _build_sector_bar_chart_svg) — même piège de largeur fixe SVG que .stacked-bar ci-dessus.
-   max-width en plus : la card parente (.breakdown-col, flex-basis 100%) fait toute la largeur
-   de la page, bien plus large que le viewBox natif du SVG (320px par défaut) — sans plafond,
-   width:100% étire le graphe (texte + barres + hauteur de ligne) à 2x+ sa taille prévue, même
-   bug que le stretch confirmé côté frontend (RansomwareSectorLollipop.tsx) sur la même donnée. */
+   Vit maintenant dans un .breakdown-col standard (~260-350px, cf. plus bas) comme les autres
+   bar charts de sa famille (malware family/top ASN, .stacked-bar) plutôt que dans une card
+   flex-basis:100% isolée — max-width aligné sur le viewBox natif du SVG (320px par défaut,
+   même valeur que .stacked-bar) pour ne pas étirer le graphe au-delà de sa taille prévue. */
 .sector-bar-chart {
   width: 100%;
-  max-width: 480px;
+  max-width: 320px;
   height: auto;
   display: block;
   margin-bottom: 6px;

@@ -623,7 +623,11 @@ def _build_cvss_epss_scatter_svg(
         return x, y
 
     axis = (
-        f'<line x1="{left_margin}" y1="{height - bottom_margin}" x2="{width - right_margin}" '
+        # x2=width (pas width-right_margin) : l'axe X doit toucher la ligne verticale du diviseur
+        # sparkline (x1=x2=width plus bas) — un x2 raccourci de right_margin laissait un vrai gap
+        # visuel entre la fin de l'axe et le diviseur ("axes qui ne se touchent pas"). Le tick "10"
+        # reste positionné à width-right_margin (juste en dessous), inchangé.
+        f'<line x1="{left_margin}" y1="{height - bottom_margin}" x2="{width}" '
         f'y2="{height - bottom_margin}" stroke="{_MAP_BORDER_COLOR}" stroke-width="1"/>'
         f'<line x1="{left_margin}" y1="{top_margin}" x2="{left_margin}" y2="{height - bottom_margin}" '
         f'stroke="{_MAP_BORDER_COLOR}" stroke-width="1"/>'
@@ -647,7 +651,8 @@ def _build_cvss_epss_scatter_svg(
 
     sparkline = ""
     if has_sparkline:
-        spark_x0 = width + 12
+        spark_x0 = width + 18  # +18 (au lieu de +12) : plus d'air entre le diviseur et la sparkline,
+        # qui lisait "collée" contre le scatter principal.
         spark_x1 = scatter_w - 6
         spark_lo, spark_hi = min(trend_series), max(trend_series)
         spark_span = (spark_hi - spark_lo) or 1
@@ -1500,7 +1505,12 @@ def build_pdf_context(
         "malicious_urls": {
             "online_count": kpis.malicious_url_count,
             "trend_pct": kpis.malicious_url_trend_pct,
-            "items": malicious_url_items,
+            # [:10] : malicious_url_items en entrée peut porter jusqu'à 50 lignes depuis
+            # orchestrate.py (rank_top_n_urls n=50, pour la pagination JSON/frontend) — le tableau
+            # PDF reste hardcodé "Top 10" (_malicious_urls.html.j2:35), donc coupé ici pour ne pas
+            # désynchroniser le rendu print. threat_type_breakdown ci-dessous utilise déjà
+            # threat_type_pool (le frame complet), jamais malicious_url_items, donc non affecté.
+            "items": malicious_url_items[:10],
             "pool_total": malicious_url_pool_total,
             "sparkline": _build_sparkline_svg(_series("malicious_url_count", kpis.malicious_url_count)),
             "trend_chart": _build_area_chart_svg(_series("malicious_url_count", kpis.malicious_url_count)),

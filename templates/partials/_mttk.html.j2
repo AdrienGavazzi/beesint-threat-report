@@ -25,16 +25,16 @@
           <div class="label">Sample size</div>
         </div>
         {% endif %}
-        <div class="kpi-card">
+        <div class="kpi-card{{ ' kpi-card--solo' if mttk.sample_size == 0 }}">
           <div class="value">{{ mttk.remediation_window_days if mttk.remediation_window_days is not none else "N/A" }}</div>
           <div class="label">CISA remediation window (avg days)</div>
         </div>
       </div>
+      {% if mttk.sample_size == 0 %}
+      <p class="chart-empty-note">Not enough data yet to measure disclosure-to-exploitation lag — no CVE this run was both newly critical and newly added to CISA's KEV list with a matching disclosure date. The figure above still reflects CISA's own remediation deadline for this week's KEV additions, independent of that overlap.</p>
+      {% endif %}
     </div>
   </div>
-  {% if mttk.sample_size == 0 %}
-  <p class="section-desc" style="font-style: italic; margin-top: 10px;">Not enough data yet to measure disclosure-to-exploitation lag — no CVE this run was both newly critical and newly added to CISA's KEV list with a matching disclosure date. The card above still reflects CISA's own remediation deadline for this week's KEV additions, independent of that overlap.</p>
-  {% endif %}
   {% if mttk.trend_sentence %}
   <p class="section-desc" style="margin-top: 8px;">{{ mttk.trend_sentence }}</p>
   {% endif %}
