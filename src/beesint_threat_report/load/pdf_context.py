@@ -45,6 +45,9 @@ SECTOR_ICONS: dict[str, str] = {
     "Agriculture": "\U0001f33e",
     "Agriculture and Food": "\U0001f33e",
     "unknown": "❓",
+    "Retail & E-Commerce": "\U0001f6d2",
+    "Professional Services": "\U0001f4bc",
+    "Other": "\U0001f4cc",
 }
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
