@@ -38,13 +38,17 @@ def _map_threatfox_item(item: dict) -> dict:
         "ioc_id": str(item["id"]),
         "ioc_type": item["ioc_type"],
         "ioc_value": item["ioc"],
-        "threat_type": item.get("threat_type", ""),
-        "malware": item.get("malware", ""),
-        "malware_printable": item.get("malware_printable", ""),
-        "confidence_level": item.get("confidence_level", 0),
+        # threatfox-api renvoie explicitement null (pas juste une clé absente) pour ces
+        # champs quand le reporter ne les renseigne pas — meme root cause que "tags"
+        # ci-dessous et que urlhaus.py::_map_urlhaus_item (`.get(x, default)` ne defaultait
+        # que sur cle absente, jamais sur None explicite -> ValidationError -> quarantine).
+        "threat_type": item.get("threat_type") or "",
+        "malware": item.get("malware") or "",
+        "malware_printable": item.get("malware_printable") or "",
+        "confidence_level": item.get("confidence_level") or 0,
         "first_seen": _strip_utc_suffix(item.get("first_seen_utc")),
         "last_seen": _strip_utc_suffix(item.get("last_seen_utc")),
-        "reporter": item.get("reporter", ""),
+        "reporter": item.get("reporter") or "",
         "tags": item.get("tags") or [],
     }
 

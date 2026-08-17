@@ -162,14 +162,19 @@ def _write_json(base_path: str, storage_options: dict | None, relative_path: str
 def _write_quarantine(
     base_path: str, storage_options: dict | None, source: str, run_id: str, rejected: list[dict]
 ) -> None:
+    if not rejected:
+        return
     for index, item in enumerate(rejected):
         _write_json(base_path, storage_options, f"quarantine/{source}/{run_id}/{index}.json", item)
-        try:
-            import sentry_sdk
+    try:
+        import sentry_sdk
 
-            sentry_sdk.capture_message(f"quarantine: {source} item {index} invalide")
-        except Exception:
-            pass
+        # un seul message agrege par source/run — un capture_message par item rejete
+        # produisait des milliers d'events Sentry en un seul run des qu'une source
+        # rejetait massivement (cf. bug threatfox ci-dessus, ~5000 items en un run).
+        sentry_sdk.capture_message(f"quarantine: {source} {len(rejected)} item(s) invalide(s) (run {run_id})")
+    except Exception:
+        pass
 
 
 async def _run_nvd_source(
