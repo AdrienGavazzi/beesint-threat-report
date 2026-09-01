@@ -116,7 +116,17 @@ def _records_to_frame(records: list, schema: dict) -> pl.DataFrame:
     if not records:
         return pl.DataFrame(schema=schema)
     rows = [r.model_dump() for r in records]
-    return pl.DataFrame(rows).select(list(schema.keys()))
+    df = pl.DataFrame(rows).select(list(schema.keys()))
+    # colonne optionnelle (ex. "vendor") a None sur TOUTES les lignes du batch -> polars
+    # infere Null au lieu du dtype declare (Utf8), et le schema pandera strict
+    # (validate_cve_frame etc.) rejette ensuite "expected String, got Null". Cast cible
+    # uniquement ces colonnes-la : un cast sur .select() entier ecraserait aussi le dtype
+    # Datetime(tz=UTC) deja correctement infere par polars depuis les valeurs (schema dict
+    # ici ne declare pas la tz -> regression constatee : cast(pl.Datetime) forcait tz=None).
+    null_cols = [c for c, dt in zip(df.columns, df.dtypes) if dt == pl.Null or dt == pl.List(pl.Null)]
+    if null_cols:
+        df = df.with_columns([pl.col(c).cast(schema[c]) for c in null_cols])
+    return df
 
 
 async def _fetch_geo_wrapped(client: httpx.AsyncClient, ip_records: list[FeodoIpRecord], batch_url: str) -> list[dict]:
