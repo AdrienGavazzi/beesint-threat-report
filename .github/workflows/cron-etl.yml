@@ -68,4 +68,5 @@ jobs:
 
       - name: Healthcheck result
         if: always() && env.HEALTHCHECK_URL != ''
-        run: curl -fsS -m 10 --retry 5 -o /dev/null "$HEALTHCHECK_URL${{ job.status == 'success' && '' || '/fail' }}" || true
+        # pas `== 'success' && '' || '/fail'` : '' est falsy en expression GHA -> renvoyait toujours /fail.
+        run: curl -fsS -m 10 --retry 5 -o /dev/null "$HEALTHCHECK_URL${{ job.status != 'success' && '/fail' || '' }}" || true
