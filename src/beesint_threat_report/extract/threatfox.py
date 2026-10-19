@@ -46,8 +46,10 @@ def _map_threatfox_item(item: dict) -> dict:
         "malware": item.get("malware") or "",
         "malware_printable": item.get("malware_printable") or "",
         "confidence_level": item.get("confidence_level") or 0,
-        "first_seen": _strip_utc_suffix(item.get("first_seen_utc")),
-        "last_seen": _strip_utc_suffix(item.get("last_seen_utc")),
+        # l'API a renommé first_seen_utc/last_seen_utc -> first_seen/last_seen (constaté oct. 2026) :
+        # l'ancien nom renvoyait None -> 100% des IOCs quarantinés.
+        "first_seen": _strip_utc_suffix(item.get("first_seen")),
+        "last_seen": _strip_utc_suffix(item.get("last_seen")),
         "reporter": item.get("reporter") or "",
         "tags": item.get("tags") or [],
     }

@@ -254,7 +254,7 @@ def validate_batch(
     """Valide chaque item individuellement. Ne lève jamais : un item invalide est
     quarantiné (retourné brut dans rejected), le reste continue. `source`/`run_id`
     sont pour la signature de l'appelant (orchestrate.py construit la clé S3
-    quarantine/{source}/{run_id}/{index}.json) — non utilisés ici, validate/ ne
+    quarantine/{source}/{run_id}.json) — non utilisés ici, validate/ ne
     connaît pas S3."""
     valid: list[BaseModel] = []
     rejected: list[dict] = []

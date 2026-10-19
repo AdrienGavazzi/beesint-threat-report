@@ -218,3 +218,16 @@ def test_build_top_ips_defaults_when_no_enrichment_passed():
     assert result[0]["shodan_has_data"] is False
     assert result[0]["confirmed_by_spamhaus"] is False
     assert result[0]["greynoise_classification"] is None
+
+
+# ---- schema drift : 100% rejetés -> failed:schema_drift + un seul objet quarantine ---------
+
+
+def test_write_quarantine_flags_schema_drift_and_writes_single_file(tmp_path):
+    rejected = [{"id": i} for i in range(3)]
+    assert (
+        orchestrate._write_quarantine(str(tmp_path), None, "threatfox", "run-1", rejected, 0) == "failed:schema_drift"
+    )
+    assert orchestrate._write_quarantine(str(tmp_path), None, "kev", "run-1", rejected, 5) == "ok"
+    assert orchestrate._write_quarantine(str(tmp_path), None, "nvd", "run-1", [], 0) == "ok"
+    assert [p.name for p in (tmp_path / "quarantine" / "threatfox").iterdir()] == ["run-1.json"]

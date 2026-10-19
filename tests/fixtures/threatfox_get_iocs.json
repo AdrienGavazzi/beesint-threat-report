@@ -9,8 +9,8 @@
       "malware": "win.heodo",
       "malware_printable": "Heodo",
       "confidence_level": 90,
-      "first_seen_utc": "2026-06-01 10:00:00 UTC",
-      "last_seen_utc": "2026-06-05 10:00:00 UTC",
+      "first_seen": "2026-06-01 10:00:00 UTC",
+      "last_seen": "2026-06-05 10:00:00 UTC",
       "reporter": "abuse_ch",
       "tags": ["emotet"]
     },
@@ -22,8 +22,8 @@
       "malware": "win.qakbot",
       "malware_printable": "QakBot",
       "confidence_level": 80,
-      "first_seen_utc": "2026-06-02 08:00:00 UTC",
-      "last_seen_utc": null,
+      "first_seen": "2026-06-02 08:00:00 UTC",
+      "last_seen": null,
       "reporter": "abuse_ch",
       "tags": []
     },
@@ -35,8 +35,8 @@
       "malware": "win.trickbot",
       "malware_printable": "TrickBot",
       "confidence_level": 75,
-      "first_seen_utc": "2026-06-03 09:00:00 UTC",
-      "last_seen_utc": null,
+      "first_seen": "2026-06-03 09:00:00 UTC",
+      "last_seen": null,
       "reporter": "abuse_ch",
       "tags": []
     },
@@ -48,8 +48,8 @@
       "malware": "win.dridex",
       "malware_printable": "Dridex",
       "confidence_level": 70,
-      "first_seen_utc": "2026-06-04 11:00:00 UTC",
-      "last_seen_utc": null,
+      "first_seen": "2026-06-04 11:00:00 UTC",
+      "last_seen": null,
       "reporter": "abuse_ch",
       "tags": []
     }

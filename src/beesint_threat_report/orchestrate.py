@@ -170,21 +170,32 @@ def _write_json(base_path: str, storage_options: dict | None, relative_path: str
 
 
 def _write_quarantine(
-    base_path: str, storage_options: dict | None, source: str, run_id: str, rejected: list[dict]
-) -> None:
+    base_path: str, storage_options: dict | None, source: str, run_id: str, rejected: list[dict], valid_count: int
+) -> str:
+    """Retourne le statut de la source : "failed:schema_drift" si 100% des items sont rejetés
+    (format upstream changé — cf. renommage first_seen_utc ThreatFox, des semaines passées
+    inaperçues en "ok" avec 0 IOC), sinon "ok"."""
     if not rejected:
-        return
-    for index, item in enumerate(rejected):
-        _write_json(base_path, storage_options, f"quarantine/{source}/{run_id}/{index}.json", item)
+        return "ok"
+    drift = valid_count == 0
+    # un seul objet S3 par source/run : un PUT par item (ancien quarantine/{source}/{run_id}/{index}.json)
+    # = 12k PUTs séquentiels quand threatfox rejetait 100% de ses IOCs -> run tué au timeout 30 min.
+    _write_json(base_path, storage_options, f"quarantine/{source}/{run_id}.json", rejected)
+    if drift:
+        logger.error("%s: 100%% des %d items rejetés par le schéma — format upstream changé ?", source, len(rejected))
     try:
         import sentry_sdk
 
         # un seul message agrege par source/run — un capture_message par item rejete
         # produisait des milliers d'events Sentry en un seul run des qu'une source
         # rejetait massivement (cf. bug threatfox ci-dessus, ~5000 items en un run).
-        sentry_sdk.capture_message(f"quarantine: {source} {len(rejected)} item(s) invalide(s) (run {run_id})")
+        sentry_sdk.capture_message(
+            f"quarantine: {source} {len(rejected)} item(s) invalide(s) (run {run_id})",
+            level="error" if drift else "warning",
+        )
     except Exception:
         pass
+    return "failed:schema_drift" if drift else "ok"
 
 
 async def _run_nvd_source(
@@ -222,7 +233,7 @@ async def _run_nvd_source(
             settings.force_refresh,
         )
         valid, rejected = validate_batch(raw, NvdCveRecord, source="nvd", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "nvd", run_id, rejected)
+        status = _write_quarantine(base_path, storage_options, "nvd", run_id, rejected, len(valid))
         deduped = dedup.dedup_cves(valid)
         df = _records_to_frame(deduped, _CVE_EMPTY_SCHEMA)
         if df.height:
@@ -242,7 +253,7 @@ async def _run_nvd_source(
         high_raw = await get_or_fetch(high_key, _fetch_high_count, settings.cache_dir, settings.force_refresh)
         cve_high_count = high_raw[0]["total"] if high_raw else 0
 
-        return df, "ok", cve_high_count
+        return df, status, cve_high_count
     except Exception:
         logger.exception("nvd: échec de la source, run continue en dégradé")
         return pl.DataFrame(schema=_CVE_EMPTY_SCHEMA), "failed", 0
@@ -266,7 +277,7 @@ async def _run_kev_source(
             settings.force_refresh,
         )
         valid, rejected = validate_batch(raw, KevEntry, source="kev", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "kev", run_id, rejected)
+        status = _write_quarantine(base_path, storage_options, "kev", run_id, rejected, len(valid))
         deduped = dedup.dedup_kev(valid)
         new_entries = kev.filter_new_entries(deduped, period_start, period_end)
         if len(new_entries) > settings.max_results_kev:
@@ -275,7 +286,7 @@ async def _run_kev_source(
         df = _records_to_frame(new_entries, _KEV_EMPTY_SCHEMA)
         if df.height:
             df = validate_kev_frame(df)
-        return df, "ok"
+        return df, status
     except Exception:
         logger.exception("kev: échec de la source, run continue en dégradé")
         return pl.DataFrame(schema=_KEV_EMPTY_SCHEMA), "failed"
@@ -298,14 +309,14 @@ async def _run_feodo_source(
             settings.force_refresh,
         )
         valid, rejected = validate_batch(raw, FeodoIpRecord, source="feodo", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "feodo", run_id, rejected)
+        status = _write_quarantine(base_path, storage_options, "feodo", run_id, rejected, len(valid))
         deduped = dedup.dedup_feodo(valid)
         df = _records_to_frame(deduped, _FEODO_EMPTY_SCHEMA)
         if df.height:
             df = validate_feodo_frame(df.with_columns(pl.lit(None, dtype=pl.Boolean).alias("is_new")))
             previous = diffing.load_previous_snapshot(manifest, "feodo", settings)
             df = diffing.diff_snapshots(df, previous, "ip_address")
-        return df, "ok"
+        return df, status
     except Exception:
         logger.exception("feodo: échec de la source, run continue en dégradé")
         return pl.DataFrame(schema=_FEODO_EMPTY_SCHEMA), "failed"
@@ -328,14 +339,14 @@ async def _run_urlhaus_source(
             settings.force_refresh,
         )
         valid, rejected = validate_batch(raw, UrlhausEntry, source="urlhaus", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "urlhaus", run_id, rejected)
+        status = _write_quarantine(base_path, storage_options, "urlhaus", run_id, rejected, len(valid))
         deduped = dedup.dedup_urlhaus(valid)
         df = _records_to_frame(deduped, _URLHAUS_EMPTY_SCHEMA)
         if df.height:
             df = validate_urlhaus_frame(df.with_columns(pl.lit(None, dtype=pl.Boolean).alias("is_new")))
             previous = diffing.load_previous_snapshot(manifest, "urlhaus", settings)
             df = diffing.diff_snapshots(df, previous, "url")
-        return df, "ok"
+        return df, status
     except Exception:
         logger.exception("urlhaus: échec de la source, run continue en dégradé")
         return pl.DataFrame(schema=_URLHAUS_EMPTY_SCHEMA), "failed"
@@ -365,8 +376,8 @@ async def _run_threatfox_source(
             settings.force_refresh,
         )
         valid, rejected = validate_batch(raw, ThreatFoxIoc, source="threatfox", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "threatfox", run_id, rejected)
-        return valid, "ok"
+        status = _write_quarantine(base_path, storage_options, "threatfox", run_id, rejected, len(valid))
+        return valid, status
     except threatfox.ThreatFoxAuthError:
         logger.warning("threatfox: Auth-Key invalide, étape ignorée")
         return [], "skipped:invalid_auth_key"
@@ -397,8 +408,8 @@ async def _run_shodan_source(
             settings.force_refresh,
         )
         valid, rejected = validate_batch(raw, ShodanInternetDbRecord, source="shodan_internetdb", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "shodan_internetdb", run_id, rejected)
-        return {r.ip: {"ports": r.ports, "vulns": r.vulns} for r in valid}, "ok"
+        status = _write_quarantine(base_path, storage_options, "shodan_internetdb", run_id, rejected, len(valid))
+        return {r.ip: {"ports": r.ports, "vulns": r.vulns} for r in valid}, status
     except Exception:
         logger.exception("shodan_internetdb: échec de la source, run continue en dégradé")
         return {}, "failed"
@@ -429,9 +440,9 @@ async def _run_spamhaus_source(
             settings.force_refresh,
         )
         valid, rejected = validate_batch(raw, SpamhausRange, source="spamhaus_drop", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "spamhaus_drop", run_id, rejected)
+        status = _write_quarantine(base_path, storage_options, "spamhaus_drop", run_id, rejected, len(valid))
         confirmed = spamhaus_drop.match_ips_against_ranges(ips, [r.cidr for r in valid])
-        return confirmed, "ok"
+        return confirmed, status
     except Exception:
         logger.exception("spamhaus_drop: échec de la source, run continue en dégradé")
         return set(), "failed"
@@ -460,8 +471,8 @@ async def _run_greynoise_source(
             settings.force_refresh,
         )
         valid, rejected = validate_batch(raw, GreyNoiseClassification, source="greynoise", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "greynoise", run_id, rejected)
-        return {r.ip: r.classification for r in valid}, "ok"
+        status = _write_quarantine(base_path, storage_options, "greynoise", run_id, rejected, len(valid))
+        return {r.ip: r.classification for r in valid}, status
     except Exception:
         logger.exception("greynoise: échec de la source, run continue en dégradé")
         return {}, "failed"
@@ -486,8 +497,8 @@ async def _run_openphish_source(
             settings.force_refresh,
         )
         valid, rejected = validate_batch(raw, OpenPhishEntry, source="openphish", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "openphish", run_id, rejected)
-        return valid, "ok"
+        status = _write_quarantine(base_path, storage_options, "openphish", run_id, rejected, len(valid))
+        return valid, status
     except Exception:
         logger.exception("openphish: échec de la source, run continue en dégradé")
         return [], "failed"
@@ -529,14 +540,19 @@ async def _run_ransomware_live_source(
         posts_this_week, rejected_posts = validate_batch(
             window_raw, RansomwarePost, source="ransomware_live", run_id=run_id
         )
-        _write_quarantine(base_path, storage_options, "ransomware_live_posts", run_id, rejected_posts)
+        posts_status = _write_quarantine(
+            base_path, storage_options, "ransomware_live_posts", run_id, rejected_posts, len(posts_this_week)
+        )
         posts_last_n_weeks, _ = validate_batch(
             last_n_weeks_raw, RansomwarePost, source="ransomware_live", run_id=run_id
         )
         groups, rejected_groups = validate_batch(raw_groups, RansomwareGroup, source="ransomware_live", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "ransomware_live_groups", run_id, rejected_groups)
+        groups_status = _write_quarantine(
+            base_path, storage_options, "ransomware_live_groups", run_id, rejected_groups, len(groups)
+        )
 
-        return posts_this_week, posts_last_n_weeks, groups, "ok"
+        status = posts_status if posts_status != "ok" else groups_status
+        return posts_this_week, posts_last_n_weeks, groups, status
     except Exception:
         logger.exception("ransomware_live: échec de la source, run continue en dégradé")
         return [], [], [], "failed"
@@ -563,9 +579,9 @@ async def _run_hibp_source(
             settings.force_refresh,
         )
         valid, rejected = validate_batch(raw, BreachEntry, source="hibp", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "hibp", run_id, rejected)
+        status = _write_quarantine(base_path, storage_options, "hibp", run_id, rejected, len(valid))
         new_entries = hibp.filter_new_breaches(valid, period_start, period_end)
-        return new_entries, "ok"
+        return new_entries, status
     except Exception:
         logger.exception("hibp: échec de la source, run continue en dégradé")
         return [], "failed"
@@ -612,8 +628,8 @@ async def _run_epss_source(
             settings.force_refresh,
         )
         valid, rejected = validate_batch(raw, EpssScore, source="epss", run_id=run_id)
-        _write_quarantine(base_path, storage_options, "epss", run_id, rejected)
-        return {r.cve_id: {"epss_score": r.epss_score, "epss_percentile": r.epss_percentile} for r in valid}, "ok"
+        status = _write_quarantine(base_path, storage_options, "epss", run_id, rejected, len(valid))
+        return {r.cve_id: {"epss_score": r.epss_score, "epss_percentile": r.epss_percentile} for r in valid}, status
     except Exception:
         logger.exception("epss: échec de la source, run continue en dégradé")
         return {}, "failed"
